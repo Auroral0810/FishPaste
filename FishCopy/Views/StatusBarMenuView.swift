@@ -39,6 +39,9 @@ struct StatusBarMenuView: View {
     // 保持窗口强引用以防止过早释放
     @State private var activeWindows: [NSWindow] = []
     
+    // 添加分类管理器窗口状态
+    @State private var showingCategoryManager = false
+    
     // 固定高度常量
     private let searchBarHeight: CGFloat = 44
     private let tabBarHeight: CGFloat = 36  // 减小了标签栏高度
@@ -147,7 +150,7 @@ struct StatusBarMenuView: View {
                 
                 // 删除按钮
                 Button(action: {
-                    deleteSelectedCategory()
+                    openCategoryManagerWindow()
                 }) {
                     Image(systemName: "minus")
                         .foregroundColor(.white)
@@ -155,9 +158,7 @@ struct StatusBarMenuView: View {
                         .frame(width: 26, height: 26)
                         .padding(.horizontal, 2)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canDeleteSelectedTab)
-                .opacity(canDeleteSelectedTab ? 1.0 : 0.3)
+                .buttonStyle(.borderless)
                 
                 // 添加按钮，放在最右边
                 Menu {
@@ -470,65 +471,37 @@ struct StatusBarMenuView: View {
         activeWindows.removeAll { $0 === window }
     }
     
+    // 打开分类管理器窗口
+    private func openCategoryManagerWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "管理分类"
+        window.isReleasedWhenClosed = false
+        
+        // 使用独立文件中定义的CategoryManagerView
+        let contentView = CategoryManagerView(modelContext: modelContext)
+            .modelContext(modelContext) // 将modelContext注入到环境中
+        
+        // 保留对rootView的引用，防止内存回收
+        let hostingView = NSHostingView(rootView: contentView)
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用以防止过早释放
+        activeWindows.append(window)
+    }
+    
     // 判断当前选中的标签是否可以删除
     private var canDeleteSelectedTab: Bool {
         // 系统默认标签不能删除（全部、钉选、今天、文本、图像、链接）
         let defaultTabs = ["全部", "钉选", "今天", "文本", "图像", "链接"]
         return !defaultTabs.contains(selectedTab)
-    }
-    
-    // 删除当前选中的分类
-    private func deleteSelectedCategory() {
-        guard canDeleteSelectedTab else { return }
-        
-        // 查找要删除的分类
-        if let categoryToDelete = categories.first(where: { $0.name == selectedTab }) {
-            // 显示确认对话框
-            let alert = NSAlert()
-            alert.messageText = "删除分类"
-            alert.informativeText = "确定要删除分类 \"\(categoryToDelete.name)\" 吗？这将会移除该分类下的所有剪贴板项目的分类标签。"
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "删除")
-            alert.addButton(withTitle: "取消")
-            
-            // 显示对话框并处理结果
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                do {
-                    // 找到所有剪贴板项目
-                    let descriptor = FetchDescriptor<ClipboardItem>()
-                    let allItems = try modelContext.fetch(descriptor)
-                    
-                    // 筛选出属于此分类的项目并清除其分类标签
-                    for item in allItems {
-                        if item.category == categoryToDelete.name {
-                            item.category = nil
-                        }
-                    }
-                    
-                    // 删除分类
-                    modelContext.delete(categoryToDelete)
-                    
-                    // 保存更改
-                    try modelContext.save()
-                    
-                    // 切换到"全部"标签
-                    selectedTab = "全部"
-                    
-                    print("成功删除分类: \(categoryToDelete.name)")
-                } catch {
-                    print("删除分类时出错: \(error.localizedDescription)")
-                    
-                    // 显示错误提示
-                    let errorAlert = NSAlert()
-                    errorAlert.messageText = "删除分类失败"
-                    errorAlert.informativeText = "无法删除分类: \(error.localizedDescription)"
-                    errorAlert.alertStyle = .critical
-                    errorAlert.addButton(withTitle: "确定")
-                    errorAlert.runModal()
-                }
-            }
-        }
     }
     
     // 修改过滤逻辑，支持自定义分类
@@ -851,4 +824,7 @@ struct GridClipboardItemView: View {
             }
         }
     }
-} 
+}
+
+// 分类管理器视图
+
