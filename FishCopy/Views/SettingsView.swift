@@ -1226,7 +1226,7 @@ struct SettingsView: View {
     }
     
     // 发送反馈邮件
-    private func sendFeedbackEmail() {
+    func sendFeedbackEmail() {
         // 获取系统信息
         let systemVersion = ProcessInfo.processInfo.operatingSystemVersionString
         

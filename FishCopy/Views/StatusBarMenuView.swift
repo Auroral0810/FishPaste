@@ -739,6 +739,10 @@ struct StatusBarMenuView: View {
         
         // 添加"激活许可证"选项
         let activateLicenseItem = NSMenuItem(title: "激活许可证", action: nil, keyEquivalent: "")
+        activateLicenseItem.target = self as AnyObject
+        activateLicenseItem.setAction {
+            self.showLicenseActivationDialog()
+        }
         menu.addItem(activateLicenseItem)
         
         menu.addItem(NSMenuItem.separator())
@@ -820,6 +824,10 @@ struct StatusBarMenuView: View {
         
         // 添加"发送反馈"选项
         let feedbackItem = NSMenuItem(title: "发送反馈", action: nil, keyEquivalent: "")
+        feedbackItem.target = self as AnyObject
+        feedbackItem.setAction {
+            self.sendFeedback()
+        }
         menu.addItem(feedbackItem)
         
         menu.addItem(NSMenuItem.separator())
@@ -838,9 +846,128 @@ struct StatusBarMenuView: View {
         }
     }
     
-    // 打开设置窗口
-    private func openSettings() {
-        FishCopyApp.shared.openSettingsWindow()
+    // 显示许可证激活弹窗
+    private func showLicenseActivationDialog() {
+        let alert = NSAlert()
+        alert.messageText = "关于FishPaste"
+        
+        // 作者信息和支持方式
+        let informativeText = """
+        本项目开源，无需许可证
+
+        作者信息:
+        邮箱：15968588744@163.com
+        开源地址：https://github.com/Auroral0810/FishPaste
+        QQ：1957689514
+        个人博客：https://fishblog.yyf040810.cn
+
+        如果您觉得FishPaste对您有所帮助，欢迎请作者喝杯奶茶支持一下~
+        您的支持是我持续开发和维护的动力！
+        """
+        
+        alert.informativeText = informativeText
+        alert.alertStyle = .informational
+        
+        // 创建支付二维码视图
+        let qrCodeView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 150))
+        
+        // 使用相对路径加载图片
+        let bundle = Bundle.main
+        if let alipayImage = NSImage(named: "alipay") {
+            // 如果成功从Assets加载
+            let alipayImageView = NSImageView(frame: NSRect(x: 0, y: 0, width: 140, height: 140))
+            alipayImageView.image = alipayImage
+            alipayImageView.imageScaling = .scaleProportionallyUpOrDown
+            
+            let alipayLabel = NSTextField(labelWithString: "支付宝")
+            alipayLabel.frame = NSRect(x: 40, y: 140, width: 60, height: 20)
+            alipayLabel.alignment = .center
+            alipayLabel.isBordered = false
+            alipayLabel.isEditable = false
+            alipayLabel.backgroundColor = .clear
+            
+            qrCodeView.addSubview(alipayImageView)
+            qrCodeView.addSubview(alipayLabel)
+            
+            print("成功加载支付宝图片")
+        } else {
+            // 创建一个简单的文本标签
+            let alipayLabel = NSTextField(labelWithString: "支付宝二维码")
+            alipayLabel.frame = NSRect(x: 0, y: 40, width: 140, height: 40)
+            alipayLabel.alignment = .center
+            alipayLabel.isBordered = false
+            alipayLabel.isEditable = false
+            alipayLabel.backgroundColor = .clear
+            alipayLabel.textColor = NSColor.white
+            
+            qrCodeView.addSubview(alipayLabel)
+            print("无法加载支付宝图片，使用文本替代")
+        }
+        
+        // 添加微信二维码
+        if let wechatImage = NSImage(named: "wechat") {
+            // 如果成功从Assets加载
+            let wechatImageView = NSImageView(frame: NSRect(x: 160, y: 0, width: 140, height: 140))
+            wechatImageView.image = wechatImage
+            wechatImageView.imageScaling = .scaleProportionallyUpOrDown
+            
+            let wechatLabel = NSTextField(labelWithString: "微信")
+            wechatLabel.frame = NSRect(x: 200, y: 140, width: 60, height: 20)
+            wechatLabel.alignment = .center
+            wechatLabel.isBordered = false
+            wechatLabel.isEditable = false
+            wechatLabel.backgroundColor = .clear
+            
+            qrCodeView.addSubview(wechatImageView)
+            qrCodeView.addSubview(wechatLabel)
+            
+            print("成功加载微信图片")
+        } else {
+            // 创建一个简单的文本标签
+            let wechatLabel = NSTextField(labelWithString: "微信二维码")
+            wechatLabel.frame = NSRect(x: 160, y: 40, width: 140, height: 40)
+            wechatLabel.alignment = .center
+            wechatLabel.isBordered = false
+            wechatLabel.isEditable = false
+            wechatLabel.backgroundColor = .clear
+            wechatLabel.textColor = NSColor.white
+            
+            qrCodeView.addSubview(wechatLabel)
+            print("无法加载微信图片，使用文本替代")
+        }
+        
+        alert.accessoryView = qrCodeView
+        
+        // 添加按钮
+        alert.addButton(withTitle: "了解")
+        alert.addButton(withTitle: "访问开源仓库")
+        alert.addButton(withTitle: "访问博客")
+        
+        // 显示对话框并处理点击结果
+        let response = alert.runModal()
+        
+        // 根据点击的按钮执行不同的操作
+        switch response {
+        case .alertSecondButtonReturn: // 第二个按钮
+            if let url = URL(string: "https://github.com/Auroral0810/FishPaste") {
+                NSWorkspace.shared.open(url)
+            }
+        case .alertThirdButtonReturn: // 第三个按钮
+            if let url = URL(string: "https://fishblog.yyf040810.cn") {
+                NSWorkspace.shared.open(url)
+            }
+        default:
+            break
+        }
+    }
+    
+    // 发送反馈
+    private func sendFeedback() {
+        // 创建一个临时的设置视图实例
+        let settingsView = SettingsView(clipboardManager: clipboardManager)
+        
+        // 使用方法
+        settingsView.sendFeedbackEmail()
     }
     
     // 打开数据库视图窗口
