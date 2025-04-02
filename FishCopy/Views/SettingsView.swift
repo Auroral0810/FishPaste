@@ -248,6 +248,8 @@ struct SettingsView: View {
     // 通用设置
     @AppStorage("launchAtStartup") private var launchAtStartup = true
     @AppStorage("enableSounds") private var enableSounds = true
+    @AppStorage("enableVimNavigation") private var enableVimNavigation = false
+    @AppStorage("removeHistoryDays") private var removeHistoryDays = 30
     
     // 高级设置
     @State private var useVimKeys = false
@@ -262,6 +264,12 @@ struct SettingsView: View {
     
     // 历史项目设置
     @State private var deleteAfter = "一个月以后"
+    
+    // 快捷键设置
+    @State private var shortcutSelectInterface: String? = nil
+    @State private var shortcutResetState: String? = nil
+    @State private var shortcutPreviousList: String? = nil
+    @State private var shortcutNextList: String? = nil
     
     let statusIconModes = ["出现在状态栏图标旁", "重置状态"]
     let pasteFormats = ["粘贴为原始文本", "保持格式粘贴", "智能粘贴"]
@@ -389,9 +397,7 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                     
                     Button("发送反馈") {
-                        if let url = URL(string: "mailto:feedback@example.com") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        sendFeedbackEmail()
                     }
                     .buttonStyle(.link)
                 }
@@ -1107,11 +1113,17 @@ struct SettingsView: View {
                 HStack(spacing: 20) {
                     Button("隐私政策") {
                         // 打开隐私政策
+                        if let url = URL(string: "https://fishcopy.app/privacy") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                     .buttonStyle(.link)
                     
                     Button("服务条款") {
                         // 打开服务条款
+                        if let url = URL(string: "https://fishcopy.app/terms") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                     .buttonStyle(.link)
                 }
@@ -1168,6 +1180,188 @@ struct SettingsView: View {
                 .padding(.bottom, 30)
             }
         }
+    }
+    
+    // 创建设置文件
+    private func createSettingsFile() -> URL? {
+        // 创建临时文件
+        let tempDirectory = FileManager.default.temporaryDirectory
+        let fileURL = tempDirectory.appendingPathComponent("AppSettings.txt")
+        
+        // 生成设置内容
+        var settingsContent = """
+        quickPaste: \(pasteToActiveApp ? 1 : 0)
+        pasteToActiveApp: \(pasteToActiveApp ? 1 : 0)
+        showStatusItem: \(showStatusIcon ? 1 : 0)
+        navigationByVimKey: \(enableVimNavigation ? 1 : 0)
+        removeHistoryItemsAfter: \(removeHistoryDays)
+        floatWindowRect: {{0, 0}, {360, 600}}
+        monitorPasteboardInterval: \(clipboardManager.monitoringInterval)
+        """
+        
+        // 添加快捷键配置
+        if let shortcutData = shortcutSelectInterface {
+            settingsContent += "\nshortcuts-select-interface: \(shortcutData)"
+        }
+        
+        if let shortcutData = shortcutResetState {
+            settingsContent += "\nshortcuts-reset-state: \(shortcutData)"
+        }
+        
+        if let shortcutData = shortcutPreviousList {
+            settingsContent += "\nshortcuts-select-previous-list: \(shortcutData)"
+        }
+        
+        if let shortcutData = shortcutNextList {
+            settingsContent += "\nshortcuts-select-next-list: \(shortcutData)"
+        }
+        
+        do {
+            try settingsContent.write(to: fileURL, atomically: true, encoding: .utf8)
+            return fileURL
+        } catch {
+            print("创建设置文件失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    // 发送反馈邮件
+    private func sendFeedbackEmail() {
+        // 获取系统信息
+        let systemVersion = ProcessInfo.processInfo.operatingSystemVersionString
+        
+        // 获取设备型号（MacBookPro等）
+        var deviceModel = "Mac"
+        if let modelName = executeShellCommand("sysctl -n hw.model") {
+            deviceModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        let uuid = UUID().uuidString
+        
+        // 创建邮件内容
+        let subject = "FishPaste Feedback"
+        let body = """
+        FishPaste (Official): 0.1.0
+        System: \(systemVersion)
+        Device: \(deviceModel)
+        UUID: \(uuid)
+        """
+        
+        // 创建设置文件
+        guard let settingsFileURL = createSettingsFile() else {
+            // 显示错误
+            let alert = NSAlert()
+            alert.messageText = "创建设置文件失败"
+            alert.informativeText = "无法创建设置文件用于反馈，请稍后再试。"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "确定")
+            alert.runModal()
+            return
+        }
+        
+        // 使用NSWorkspace.shared.open()打开Mail客户端并尝试创建一个新邮件
+        let service = NSSharingService(named: NSSharingService.Name.composeEmail)
+        
+        if let emailService = service {
+            // 设置收件人
+            emailService.recipients = ["15968588744@163.com"]
+            
+            // 设置主题和正文
+            emailService.subject = subject
+            
+            // 分享项目（正文和附件）
+            emailService.perform(withItems: [body, settingsFileURL])
+        } else {
+            // 如果无法使用内置的分享服务，则尝试AppleScript
+            let script = """
+            tell application "Mail"
+                set newMessage to make new outgoing message with properties {subject:"\(subject)", content:"\(body)", visible:true}
+                tell newMessage
+                    set toRecipient to make new to recipient with properties {address:"15968588744@163.com"}
+                    tell content
+                        make new attachment with properties {file name:"\(settingsFileURL.path)"} at after last paragraph
+                    end tell
+                end tell
+                activate
+            end tell
+            """
+            
+            let appleScript = NSAppleScript(source: script)
+            var errorDict: NSDictionary?
+            
+            if let appleScript = appleScript {
+                appleScript.executeAndReturnError(&errorDict)
+                
+                if let error = errorDict {
+                    print("AppleScript错误: \(error)")
+                    
+                    // 尝试第三种方法：直接创建并打开包含附件的Apple事件
+                    let fileManager = FileManager.default
+                    let desktopURL = try? fileManager.url(for: .desktopDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+                    let scriptPath = desktopURL?.appendingPathComponent("send_email.applescript")
+                    
+                    do {
+                        try script.write(to: scriptPath!, atomically: true, encoding: .utf8)
+                        let task = Process()
+                        task.launchPath = "/usr/bin/osascript"
+                        task.arguments = [scriptPath!.path]
+                        try task.run()
+                    } catch {
+                        print("尝试运行AppleScript文件失败: \(error)")
+                        
+                        // 最后的备选方案：使用mailto链接（但这会丢失附件）
+                        var components = URLComponents()
+                        components.scheme = "mailto"
+                        components.path = "15968588744@163.com"
+                        components.queryItems = [
+                            URLQueryItem(name: "subject", value: subject),
+                            URLQueryItem(name: "body", value: body)
+                        ]
+                        
+                        if let mailtoURL = components.url {
+                            NSWorkspace.shared.open(mailtoURL)
+                        }
+                    }
+                }
+            } else {
+                // 如果AppleScript创建失败，使用mailto链接作为最后的备选方案
+                var components = URLComponents()
+                components.scheme = "mailto"
+                components.path = "15968588744@163.com"
+                components.queryItems = [
+                    URLQueryItem(name: "subject", value: subject),
+                    URLQueryItem(name: "body", value: body)
+                ]
+                
+                if let mailtoURL = components.url {
+                    NSWorkspace.shared.open(mailtoURL)
+                }
+            }
+        }
+    }
+    
+    // 执行Shell命令获取信息
+    private func executeShellCommand(_ command: String) -> String? {
+        let task = Process()
+        let pipe = Pipe()
+        
+        task.standardOutput = pipe
+        task.arguments = ["-c", command]
+        task.launchPath = "/bin/sh"
+        task.standardError = pipe
+        
+        do {
+            try task.run()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                return output
+            }
+        } catch {
+            print("执行命令失败: \(error.localizedDescription)")
+        }
+        
+        return nil
     }
 }
 
