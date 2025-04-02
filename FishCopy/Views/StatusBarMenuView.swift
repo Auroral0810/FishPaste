@@ -1070,19 +1070,32 @@ struct ClipboardItemView: View {
     // 内容类型图标
     private var contentTypeIcon: some View {
         Group {
-            if item.displayImage != nil {
+            if let fileURLs = item.fileURLs, !fileURLs.isEmpty {
+                // 对于文件，直接使用文件的应用程序图标
+                if let image = item.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 24, height: 24)
+                } else {
+                    // 如果没有预加载的图标，使用通用文件夹图标
+                    Image(systemName: "folder")
+                        .foregroundColor(.orange)
+                }
+            } else if item.displayImage != nil {
+                // 图片类型
                 Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
                     .foregroundColor(.blue)
-            } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
-                Image(systemName: "folder")
-                    .foregroundColor(.orange)
             } else if let text = item.text, text.hasPrefix("http") {
+                // 链接类型
                 Image(systemName: "link")
                     .foregroundColor(.purple)
             } else if item.text != nil {
+                // 文本类型
                 Image(systemName: "doc.text")
                     .foregroundColor(.green)
             } else {
+                // 未知类型
                 Image(systemName: "questionmark.square")
                     .foregroundColor(.gray)
             }
@@ -1194,19 +1207,32 @@ struct RichClipboardItemView: View {
     // 这里复用与ClipboardItemView相同的辅助方法
     private var contentTypeIcon: some View {
         Group {
-            if item.displayImage != nil {
+            if let fileURLs = item.fileURLs, !fileURLs.isEmpty {
+                // 对于文件，直接使用文件的应用程序图标
+                if let image = item.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 24, height: 24)
+                } else {
+                    // 如果没有预加载的图标，使用通用文件夹图标
+                    Image(systemName: "folder")
+                        .foregroundColor(.orange)
+                }
+            } else if item.displayImage != nil {
+                // 图片类型
                 Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
                     .foregroundColor(.blue)
-            } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
-                Image(systemName: "folder")
-                    .foregroundColor(.orange)
             } else if let text = item.text, text.hasPrefix("http") {
+                // 链接类型
                 Image(systemName: "link")
                     .foregroundColor(.purple)
             } else if item.text != nil {
+                // 文本类型
                 Image(systemName: "doc.text")
                     .foregroundColor(.green)
             } else {
+                // 未知类型
                 Image(systemName: "questionmark.square")
                     .foregroundColor(.gray)
             }
@@ -1360,19 +1386,32 @@ struct GridClipboardItemView: View {
     // 内容类型图标 - 移出闭包
     var contentTypeIcon: some View {
         Group {
-            if item.displayImage != nil {
+            if let fileURLs = item.fileURLs, !fileURLs.isEmpty {
+                // 对于文件，直接使用文件的应用程序图标
+                if let image = item.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 24, height: 24)
+                } else {
+                    // 如果没有预加载的图标，使用通用文件夹图标
+                    Image(systemName: "folder")
+                        .foregroundColor(.orange)
+                }
+            } else if item.displayImage != nil {
+                // 图片类型
                 Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
                     .foregroundColor(.blue)
-            } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
-                Image(systemName: "folder")
-                    .foregroundColor(.orange)
             } else if let text = item.text, text.hasPrefix("http") {
+                // 链接类型
                 Image(systemName: "link")
                     .foregroundColor(.purple)
             } else if item.text != nil {
+                // 文本类型
                 Image(systemName: "doc.text")
                     .foregroundColor(.green)
             } else {
+                // 未知类型
                 Image(systemName: "questionmark.square")
                     .foregroundColor(.gray)
             }
