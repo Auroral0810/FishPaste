@@ -270,6 +270,8 @@ struct DatabaseViewerView: View {
         // 根据内容类型，执行不同的导出操作
         if let imageData = item.imageData {
             exportImage(imageData)
+        } else if let imagesData = item.imagesData, !imagesData.isEmpty {
+            exportMultipleImages(imagesData)
         } else if let text = item.textContent {
             exportText(text)
         } else if let urlStrings = item.fileURLStrings {
@@ -342,6 +344,12 @@ struct DatabaseViewerView: View {
             pasteboard.setString(text, forType: .string)
         } else if let imageData = item.imageData, let image = NSImage(data: imageData) {
             pasteboard.writeObjects([image])
+        } else if let imagesData = item.imagesData, !imagesData.isEmpty {
+            // 复制多张图片
+            let images = imagesData.compactMap { NSImage(data: $0) }
+            if !images.isEmpty {
+                pasteboard.writeObjects(images)
+            }
         } else if let urlStrings = item.fileURLStrings {
             let urls = urlStrings.compactMap { URL(string: $0) }
             if !urls.isEmpty {
@@ -412,12 +420,62 @@ struct DatabaseViewerView: View {
         }
     }
     
+    // 导出多张图片
+    private func exportMultipleImages(_ imagesData: [Data]) {
+        // 创建打开目录选择器
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = false
+        openPanel.canChooseDirectories = true
+        openPanel.canCreateDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.message = "选择保存图片的目录"
+        openPanel.prompt = "选择"
+        
+        if openPanel.runModal() == .OK, let url = openPanel.url {
+            var successCount = 0
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+            let dateString = dateFormatter.string(from: Date())
+            
+            for (index, imgData) in imagesData.enumerated() {
+                let fileName = "图片_\(dateString)_\(index+1).png"
+                let fileURL = url.appendingPathComponent(fileName)
+                
+                do {
+                    try imgData.write(to: fileURL)
+                    successCount += 1
+                } catch {
+                    print("保存图片失败: \(error.localizedDescription)")
+                }
+            }
+            
+            if successCount > 0 {
+                let message = successCount == imagesData.count ? 
+                    "成功导出全部\(successCount)张图片" : 
+                    "成功导出\(successCount)/\(imagesData.count)张图片"
+                showAlert("导出完成", detail: message)
+            } else {
+                showError("导出失败", detail: "无法保存图片")
+            }
+        }
+    }
+    
     // 显示错误提示
     private func showError(_ title: String, detail: String) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
         alert.alertStyle = .warning
+        alert.addButton(withTitle: "确定")
+        alert.runModal()
+    }
+    
+    // 显示成功提示
+    private func showAlert(_ title: String, detail: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.alertStyle = .informational
         alert.addButton(withTitle: "确定")
         alert.runModal()
     }

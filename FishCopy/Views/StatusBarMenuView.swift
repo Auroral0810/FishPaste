@@ -1046,6 +1046,17 @@ struct ClipboardItemView: View {
             
             Spacer()
             
+            // 显示图片数量指示器
+            if item.imageCount > 1 {
+                Text("\(item.imageCount)张图片")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.2))
+                    .cornerRadius(4)
+            }
+            
             // 时间戳
             Text(item.timestamp, style: .time)
                 .font(.caption)
@@ -1059,8 +1070,8 @@ struct ClipboardItemView: View {
     // 内容类型图标
     private var contentTypeIcon: some View {
         Group {
-            if item.image != nil {
-                Image(systemName: "photo")
+            if item.displayImage != nil {
+                Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
                     .foregroundColor(.blue)
             } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
                 Image(systemName: "folder")
@@ -1082,7 +1093,9 @@ struct ClipboardItemView: View {
     private func getPreviewText() -> String {
         if let text = item.text {
             return text
-        } else if item.image != nil {
+        } else if item.imageCount > 1 {
+            return "\(item.imageCount)张图片"
+        } else if item.displayImage != nil {
             return "图片"
         } else if let urls = item.fileURLs, !urls.isEmpty {
             return urls.first!.lastPathComponent
@@ -1109,6 +1122,17 @@ struct RichClipboardItemView: View {
                 
                 Spacer()
                 
+                // 显示图片数量指示器
+                if item.imageCount > 1 {
+                    Text("\(item.imageCount)张图片")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.2))
+                        .cornerRadius(4)
+                }
+                
                 Text(item.timestamp, style: .time)
                     .font(.caption)
                     .foregroundColor(.gray)
@@ -1121,10 +1145,10 @@ struct RichClipboardItemView: View {
                     .foregroundColor(.gray)
                     .lineLimit(2)
                     .padding(.leading, 28)
-            } else if item.image != nil {
+            } else if item.imageCount == 1, let image = item.displayImage {
                 HStack {
                     Spacer()
-                    Image(nsImage: item.image!)
+                    Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
                         .frame(maxHeight: 60)
@@ -1132,6 +1156,34 @@ struct RichClipboardItemView: View {
                     Spacer()
                 }
                 .padding(.top, 4)
+            } else if item.imageCount > 1, let images = item.images {
+                // 显示多张图片的预览
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<min(images.count, 3), id: \.self) { index in
+                            Image(nsImage: images[index])
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 60, height: 60)
+                                .cornerRadius(4)
+                                .clipped()
+                        }
+                        
+                        if images.count > 3 {
+                            ZStack {
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.3))
+                                    .frame(width: 60, height: 60)
+                                    .cornerRadius(4)
+                                
+                                Text("+\(images.count - 3)")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
         .padding(.vertical, 8)
@@ -1142,8 +1194,8 @@ struct RichClipboardItemView: View {
     // 这里复用与ClipboardItemView相同的辅助方法
     private var contentTypeIcon: some View {
         Group {
-            if item.image != nil {
-                Image(systemName: "photo")
+            if item.displayImage != nil {
+                Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
                     .foregroundColor(.blue)
             } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
                 Image(systemName: "folder")
@@ -1164,7 +1216,9 @@ struct RichClipboardItemView: View {
     private func getPreviewText() -> String {
         if let text = item.text {
             return text.prefix(30).replacingOccurrences(of: "\n", with: " ") + (text.count > 30 ? "..." : "")
-        } else if item.image != nil {
+        } else if item.imageCount > 1 {
+            return "\(item.imageCount)张图片"
+        } else if item.displayImage != nil {
             return "图片"
         } else if let urls = item.fileURLs, !urls.isEmpty {
             return urls.first!.lastPathComponent
@@ -1188,21 +1242,95 @@ struct GridClipboardItemView: View {
                     .frame(width: 130, height: 110)
                     .cornerRadius(6)
                 
-                if let image = item.image {
+                if item.imageCount == 1, let image = item.displayImage {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
                         .frame(width: 130, height: 110)
                         .cornerRadius(6)
                         .clipped()
+                } else if item.imageCount > 1, let images = item.images {
+                    // 多图片网格布局
+                    VStack(spacing: 2) {
+                        HStack(spacing: 2) {
+                            if images.count > 0 {
+                                Image(nsImage: images[0])
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 54)
+                                    .cornerRadius(4)
+                                    .clipped()
+                            }
+                            
+                            if images.count > 1 {
+                                Image(nsImage: images[1])
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 54)
+                                    .cornerRadius(4)
+                                    .clipped()
+                            }
+                        }
+                        
+                        HStack(spacing: 2) {
+                            if images.count > 2 {
+                                Image(nsImage: images[2])
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 54)
+                                    .cornerRadius(4)
+                                    .clipped()
+                            } else if images.count == 2 {
+                                Rectangle()
+                                    .fill(Color(white: 0.2))
+                                    .frame(width: 64, height: 54)
+                                    .cornerRadius(4)
+                            }
+                            
+                            if images.count > 3 {
+                                ZStack {
+                                    Image(nsImage: images[3])
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 64, height: 54)
+                                        .cornerRadius(4)
+                                        .clipped()
+                                        .blur(radius: images.count > 4 ? 2 : 0)
+                                    
+                                    if images.count > 4 {
+                                        Text("+\(images.count - 4)")
+                                            .foregroundColor(.white)
+                                            .font(.system(size: 16, weight: .bold))
+                                            .shadow(radius: 2)
+                                    }
+                                }
+                            } else if images.count <= 3 {
+                                Rectangle()
+                                    .fill(Color(white: 0.2))
+                                    .frame(width: 64, height: 54)
+                                    .cornerRadius(4)
+                            }
+                        }
+                    }
+                    .frame(width: 130, height: 110)
                 } else {
                     contentPreview
                         .frame(width: 130, height: 110)
                 }
                 
-                // 类型指示器
+                // 类型指示器和图片计数
                 VStack {
                     HStack {
+                        if item.imageCount > 1 {
+                            Text("\(item.imageCount)")
+                                .foregroundColor(.white)
+                                .font(.system(size: 10))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.7))
+                                .cornerRadius(4)
+                        }
+                        
                         Spacer()
                         contentTypeIcon
                             .frame(width: 16, height: 16)
@@ -1232,8 +1360,8 @@ struct GridClipboardItemView: View {
     // 内容类型图标 - 移出闭包
     var contentTypeIcon: some View {
         Group {
-            if item.image != nil {
-                Image(systemName: "photo")
+            if item.displayImage != nil {
+                Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
                     .foregroundColor(.blue)
             } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
                 Image(systemName: "folder")

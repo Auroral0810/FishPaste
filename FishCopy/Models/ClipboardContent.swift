@@ -12,17 +12,19 @@ import SwiftData
 class ClipboardContent: Identifiable {
     var id: UUID
     var text: String?
-    var image: NSImage?
+    var image: NSImage?  // 保留单图片支持，用于向后兼容
+    var images: [NSImage]?  // 新增：支持多张图片
     var fileURLs: [URL]?
     var timestamp: Date
     var category: String?
     var isPinned: Bool
     
-    init(id: UUID = UUID(), text: String? = nil, image: NSImage? = nil, fileURLs: [URL]? = nil, 
+    init(id: UUID = UUID(), text: String? = nil, image: NSImage? = nil, images: [NSImage]? = nil, fileURLs: [URL]? = nil, 
          category: String? = nil, timestamp: Date = Date(), isPinned: Bool = false) {
         self.id = id
         self.text = text
         self.image = image
+        self.images = images
         self.fileURLs = fileURLs
         self.timestamp = timestamp
         self.category = category
@@ -47,6 +49,11 @@ class ClipboardContent: Identifiable {
             return false
         }
         
+        // 多图片比较 - 如果两边都有images数组，不做进一步比较，认为是不同的
+        if (images != nil && !images!.isEmpty) && (other.images != nil && !other.images!.isEmpty) {
+            return false
+        }
+        
         // 对于文件URL的比较
         if let urls = fileURLs, let otherURLs = other.fileURLs {
             // 检查URL集合是否相同
@@ -58,12 +65,34 @@ class ClipboardContent: Identifiable {
         // 如果它们都没有内容，则认为是相同的
         if text == nil && other.text == nil && 
            image == nil && other.image == nil && 
+           (images == nil || images?.isEmpty == true) &&
+           (other.images == nil || other.images?.isEmpty == true) &&
            (fileURLs == nil || fileURLs?.isEmpty == true) && 
            (other.fileURLs == nil || other.fileURLs?.isEmpty == true) {
             return true
         }
         
         return false
+    }
+    
+    // 获取显示用的主图片
+    var displayImage: NSImage? {
+        if let img = image {
+            return img
+        } else if let imgs = images, !imgs.isEmpty {
+            return imgs.first
+        }
+        return nil
+    }
+    
+    // 获取图片数量
+    var imageCount: Int {
+        if image != nil {
+            return 1
+        } else if let imgs = images {
+            return imgs.count
+        }
+        return 0
     }
 }
 
@@ -72,7 +101,8 @@ class ClipboardContent: Identifiable {
 final class ClipboardItem {
     @Attribute(.unique) var id: UUID
     var textContent: String?
-    var imageData: Data?
+    var imageData: Data?  // 保留单图片支持
+    var imagesData: [Data]?  // 新增：支持多张图片数据
     // 将fileURLStrings改为计算属性
     var fileURLStrings: [String]? {
         get {
@@ -96,11 +126,13 @@ final class ClipboardItem {
     var isPinned: Bool
     
     init(id: UUID = UUID(), textContent: String? = nil, imageData: Data? = nil, 
-         fileURLStrings: [String]? = nil, category: String? = nil, timestamp: Date = Date(), 
+         imagesData: [Data]? = nil, fileURLStrings: [String]? = nil, 
+         category: String? = nil, timestamp: Date = Date(), 
          isPinned: Bool = false) {
         self.id = id
         self.textContent = textContent
         self.imageData = imageData
+        self.imagesData = imagesData
         self.timestamp = timestamp
         self.category = category
         self.isPinned = isPinned
@@ -121,6 +153,12 @@ final class ClipboardItem {
             image = NSImage(data: imgData)
         }
         
+        // 从Data数组创建图像数组
+        var images: [NSImage]? = nil
+        if let imgsData = imagesData, !imgsData.isEmpty {
+            images = imgsData.compactMap { NSImage(data: $0) }
+        }
+        
         // 从字符串数组创建URL数组
         var urls: [URL]? = nil
         if let urlStrings = fileURLStrings {
@@ -131,6 +169,7 @@ final class ClipboardItem {
             id: id,
             text: textContent,
             image: image,
+            images: images,
             fileURLs: urls,
             category: category,
             timestamp: timestamp,
