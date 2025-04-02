@@ -242,27 +242,23 @@ struct SettingsContentView: View {
 
 // SwiftUI视图包装器
 struct SettingsView: View {
-    var clipboardManager: ClipboardManager
-    @State internal var selectedTab: SettingsTab = .general
+    // MARK: - 属性
+    @ObservedObject var clipboardManager: ClipboardManager
     
-    // 通用设置
-    @AppStorage("launchAtStartup") private var launchAtStartup = true {
-        didSet {
-            // 当设置变更时，调用切换方法
-            if oldValue != launchAtStartup {
-                clipboardManager.setLaunchAtStartup(launchAtStartup)
-            }
-        }
-    }
-    @AppStorage("enableSounds") private var enableSounds = true
-    @AppStorage("enableVimNavigation") private var enableVimNavigation = false
-    @AppStorage("removeHistoryDays") private var removeHistoryDays = 30
+    // 设置状态
+    @State private var selectedTab: SettingsTab = .general
+    @State private var launchAtStartup = UserDefaults.standard.bool(forKey: "launchAtStartup")
+    @State private var enableSounds = UserDefaults.standard.bool(forKey: "enableSoundEffects")
+    @State private var showSourceAppIcon = UserDefaults.standard.bool(forKey: "showSourceAppIcon")
+    @State private var monitoringInterval = UserDefaults.standard.double(forKey: "monitoringInterval")
     
     // 高级设置
     @State private var useVimKeys = false
     @State private var useQwertyLayout = false
     @State private var showStatusIcon = true
     @State private var statusIconMode = "出现在状态栏图标旁"
+    @State private var enableVimNavigation = false
+    @State private var removeHistoryDays = 30
     
     // 粘贴设置
     @State private var pasteToActiveApp = true
@@ -374,28 +370,33 @@ struct SettingsView: View {
     
     // 通用设置选项卡
     internal var generalTab: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 20) {
-                // 启动设置
-                GridRow {
-                    Text("启动:")
-                        .gridColumnAlignment(.trailing)
-                        .foregroundColor(.secondary)
-                        .frame(width: 50)
-                    
-                    Toggle("随系统启动", isOn: $launchAtStartup)
-                        .toggleStyle(.checkbox)
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // MARK: - 使用体验
+                SectionTitle(title: "使用体验")
                 
-                // 声音设置
-                GridRow {
-                    Text("声音:")
-                        .gridColumnAlignment(.trailing)
-                        .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    // 自动开启设置
+                    Toggle("开机自动启动", isOn: $launchAtStartup)
+                        .toggleStyle(.switch)
                     
-                    Toggle("启用音效", isOn: $enableSounds)
-                        .toggleStyle(.checkbox)
+                    // 音效设置
+                    Toggle("启用音效反馈", isOn: $enableSounds)
+                        .toggleStyle(.switch)
+                        .onChange(of: enableSounds) { newValue in
+                            clipboardManager.setEnableSoundEffects(newValue)
+                        }
+                    
+                    // 来源应用图标显示设置
+                    Toggle("显示来源应用图标", isOn: $showSourceAppIcon)
+                        .toggleStyle(.switch)
+                        .onChange(of: showSourceAppIcon) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: "showSourceAppIcon")
+                        }
                 }
+                .padding()
+                .background(Color(NSColor.textBackgroundColor).opacity(0.1))
+                .cornerRadius(8)
                 
                 // 支持选项
                 GridRow {
@@ -439,7 +440,6 @@ struct SettingsView: View {
                     .buttonStyle(.link)
                 }
             }
-            .padding(30)
         }
     }
     
@@ -854,222 +854,27 @@ struct SettingsView: View {
     
     // 高级设置选项卡
     internal var advancedTab: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Spacer().frame(height: 14)
-                    
-                    // 键盘设置
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("键盘设置")
-                            .font(.headline)
-                            .padding(.horizontal, 60)
-                        
-                        Divider()
-                            .padding(.horizontal, 60)
-                        
-                        Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
-                            // Vim键绑定设置
-                            GridRow {
-                                Text("Vim键绑定:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                Toggle("使用HJKL键在项目与列表间导航", isOn: $useVimKeys)
-                                    .toggleStyle(.checkbox)
-                            }
-                            
-                            // 键盘布局设置
-                            GridRow {
-                                Text("键盘布局:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                Toggle("使用德沃夏克键盘布局", isOn: $useQwertyLayout)
-                                    .toggleStyle(.checkbox)
-                            }
-                        }
-                        .padding(.horizontal, 60)
-                        .padding(.top, 8)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Color.gray.opacity(0.05))
-                    
-                    // 菜单栏设置
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("菜单栏设置")
-                            .font(.headline)
-                            .padding(.horizontal, 60)
-                        
-                        Divider()
-                            .padding(.horizontal, 60)
-                        
-                        Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
-                            // 菜单栏图标显示
-                            GridRow {
-                                Text("菜单栏:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                Toggle("显示状态图标", isOn: $showStatusIcon)
-                                    .toggleStyle(.checkbox)
-                            }
-                            
-                            // 快捷键激活设置
-                            GridRow {
-                                Text("快捷键激活时:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                Picker("", selection: $statusIconMode) {
-                                    ForEach(statusIconModes, id: \.self) { mode in
-                                        Text(mode).tag(mode)
-                                    }
-                                }
-                                .frame(width: 240)
-                            }
-                            
-                            // 界面显示设置
-                            GridRow {
-                                Text("显示界面时:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Picker("", selection: .constant("有新内容时重置状态")) {
-                                        Text("有新内容时重置状态").tag("有新内容时重置状态")
-                                    }
-                                    .frame(width: 240)
-                                    
-                                    Text("有新内容时滚动到顶部并退出搜索状态")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 60)
-                        .padding(.top, 8)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Color.gray.opacity(0.05))
-                    
-                    // 粘贴选项设置
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("粘贴选项")
-                            .font(.headline)
-                            .padding(.horizontal, 60)
-                        
-                        Divider()
-                            .padding(.horizontal, 60)
-                        
-                        Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
-                            // 粘贴到活动App
-                            GridRow {
-                                Text("粘贴选项:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Toggle("粘贴至当前激活的App", isOn: $pasteToActiveApp)
-                                        .toggleStyle(.checkbox)
-                                    
-                                    Text("需要辅助功能权限")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                        .padding(.leading, 20)
-                                }
-                            }
-                            
-                            // 粘贴后移至最前
-                            GridRow {
-                                Text("")
-                                    .gridColumnAlignment(.trailing)
-                                    .frame(width: 120)
-                                
-                                Toggle("粘贴后将项目移至最前", isOn: $moveToFront)
-                                    .toggleStyle(.checkbox)
-                            }
-                            
-                            // 粘贴文本格式
-                            GridRow {
-                                Text("粘贴文本:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Picker("", selection: $pasteFormat) {
-                                        ForEach(pasteFormats, id: \.self) { format in
-                                            Text(format).tag(format)
-                                        }
-                                    }
-                                    .frame(width: 240)
-                                    
-                                    Text("按住 ⌥ Option 键以粘贴纯文本")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 60)
-                        .padding(.top, 8)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Color.gray.opacity(0.05))
-                    
-                    // 历史项目设置
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("历史记录")
-                            .font(.headline)
-                            .padding(.horizontal, 60)
-                        
-                        Divider()
-                            .padding(.horizontal, 60)
-                        
-                        Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
-                            // 移除历史项目
-                            GridRow {
-                                Text("移除历史项目:")
-                                    .gridColumnAlignment(.trailing)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 120)
-                                
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Picker("", selection: $deleteAfter) {
-                                        ForEach(deleteOptions, id: \.self) { option in
-                                            Text(option).tag(option)
-                                        }
-                                    }
-                                    .frame(width: 240)
-                                    
-                                    Text("添加至普通列表的项目不会被移除")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 60)
-                        .padding(.top, 8)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Color.gray.opacity(0.05))
-                    
-                    Spacer().frame(height: 14)
-                }
-                .frame(maxWidth: .infinity)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Spacer().frame(height: 14)
+                
+                // 键盘设置
+                KeyboardSettingsSection(useVimKeys: $useVimKeys, useQwertyLayout: $useQwertyLayout)
+                
+                // 菜单栏设置
+                MenuBarSettingsSection(showStatusIcon: $showStatusIcon, statusIconMode: $statusIconMode, statusIconModes: statusIconModes)
+                
+                // 粘贴选项设置
+                PasteSettingsSection(pasteToActiveApp: $pasteToActiveApp, moveToFront: $moveToFront, pasteFormat: $pasteFormat, pasteFormats: pasteFormats)
+                
+                // 历史项目设置
+                HistorySettingsSection(deleteAfter: $deleteAfter, deleteOptions: deleteOptions)
+                
+                Spacer().frame(height: 14)
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
         }
+        .frame(maxHeight: .infinity)
     }
     
     // 关于选项卡
@@ -1128,7 +933,7 @@ struct SettingsView: View {
                     
                     Button("服务条款") {
                         // 打开服务条款
-                        if let url = URL(string: "https://auroral0810.github.io/fishpaste-pages/privacy.html ") {
+                        if let url = URL(string: "https://auroral0810.github.io/fishpaste-pages/terms.html") {
                             NSWorkspace.shared.open(url)
                         }
                     }
@@ -1224,7 +1029,7 @@ struct SettingsView: View {
         }
         
         do {
-            try settingsContent.write(to: fileURL, atomically: true, encoding: .utf8)
+            try settingsContent.write(to: fileURL, atomically: true, encoding: String.Encoding.utf8)
             return fileURL
         } catch {
             print("创建设置文件失败: \(error.localizedDescription)")
@@ -1308,7 +1113,7 @@ struct SettingsView: View {
                     let scriptPath = desktopURL?.appendingPathComponent("send_email.applescript")
                     
                     do {
-                        try script.write(to: scriptPath!, atomically: true, encoding: .utf8)
+                        try script.write(to: scriptPath!, atomically: true, encoding: String.Encoding.utf8)
                         let task = Process()
                         task.launchPath = "/usr/bin/osascript"
                         task.arguments = [scriptPath!.path]
@@ -1369,6 +1174,254 @@ struct SettingsView: View {
         }
         
         return nil
+    }
+}
+
+// 部分标题组件
+struct SectionTitle: View {
+    let title: String
+    
+    var body: some View {
+        Text(title)
+            .font(.headline)
+            .foregroundColor(.secondary)
+            .padding(.bottom, 4)
+    }
+}
+
+// 菜单栏设置部分
+struct MenuBarSettingsSection: View {
+    @Binding var showStatusIcon: Bool
+    @Binding var statusIconMode: String
+    let statusIconModes: [String]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("菜单栏设置")
+                .font(.headline)
+                .padding(.horizontal, 60)
+            
+            Divider()
+                .padding(.horizontal, 60)
+            
+            Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
+                // 菜单栏图标显示
+                GridRow {
+                    Text("菜单栏:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    Toggle("显示状态图标", isOn: $showStatusIcon)
+                        .toggleStyle(.checkbox)
+                }
+                
+                // 快捷键激活设置
+                GridRow {
+                    Text("快捷键激活时:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    Picker("", selection: $statusIconMode) {
+                        ForEach(statusIconModes, id: \.self) { mode in
+                            Text(mode).tag(mode)
+                        }
+                    }
+                    .frame(width: 240)
+                }
+                
+                // 界面显示设置
+                GridRow {
+                    Text("显示界面时:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("", selection: .constant("有新内容时重置状态")) {
+                            Text("有新内容时重置状态").tag("有新内容时重置状态")
+                        }
+                        .frame(width: 240)
+                        
+                        Text("有新内容时滚动到顶部并退出搜索状态")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .padding(.horizontal, 60)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(Color.gray.opacity(0.05))
+    }
+}
+
+// 键盘设置部分
+struct KeyboardSettingsSection: View {
+    @Binding var useVimKeys: Bool
+    @Binding var useQwertyLayout: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("键盘设置")
+                .font(.headline)
+                .padding(.horizontal, 60)
+            
+            Divider()
+                .padding(.horizontal, 60)
+            
+            Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
+                // Vim键绑定设置
+                GridRow {
+                    Text("Vim键绑定:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    Toggle("使用HJKL键在项目与列表间导航", isOn: $useVimKeys)
+                        .toggleStyle(.checkbox)
+                }
+                
+                // 键盘布局设置
+                GridRow {
+                    Text("键盘布局:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    Toggle("使用德沃夏克键盘布局", isOn: $useQwertyLayout)
+                        .toggleStyle(.checkbox)
+                }
+            }
+            .padding(.horizontal, 60)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(Color.gray.opacity(0.05))
+    }
+}
+
+// 粘贴设置部分
+struct PasteSettingsSection: View {
+    @Binding var pasteToActiveApp: Bool
+    @Binding var moveToFront: Bool
+    @Binding var pasteFormat: String
+    let pasteFormats: [String]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("粘贴选项")
+                .font(.headline)
+                .padding(.horizontal, 60)
+            
+            Divider()
+                .padding(.horizontal, 60)
+            
+            Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
+                // 粘贴到活动App
+                GridRow {
+                    Text("粘贴选项:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("粘贴至当前激活的App", isOn: $pasteToActiveApp)
+                            .toggleStyle(.checkbox)
+                        
+                        Text("需要辅助功能权限")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.leading, 20)
+                    }
+                }
+                
+                // 粘贴后移至最前
+                GridRow {
+                    Text("")
+                        .gridColumnAlignment(.trailing)
+                        .frame(width: 120)
+                    
+                    Toggle("粘贴后将项目移至最前", isOn: $moveToFront)
+                        .toggleStyle(.checkbox)
+                }
+                
+                // 粘贴文本格式
+                GridRow {
+                    Text("粘贴文本:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("", selection: $pasteFormat) {
+                            ForEach(pasteFormats, id: \.self) { format in
+                                Text(format).tag(format)
+                            }
+                        }
+                        .frame(width: 240)
+                        
+                        Text("按住 ⌥ Option 键以粘贴纯文本")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .padding(.horizontal, 60)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(Color.gray.opacity(0.05))
+    }
+}
+
+// 历史记录设置部分
+struct HistorySettingsSection: View {
+    @Binding var deleteAfter: String
+    let deleteOptions: [String]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("历史记录")
+                .font(.headline)
+                .padding(.horizontal, 60)
+            
+            Divider()
+                .padding(.horizontal, 60)
+            
+            Grid(alignment: .leading, horizontalSpacing: 40, verticalSpacing: 16) {
+                // 移除历史项目
+                GridRow {
+                    Text("移除历史项目:")
+                        .gridColumnAlignment(.trailing)
+                        .foregroundColor(.secondary)
+                        .frame(width: 120)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("", selection: $deleteAfter) {
+                            ForEach(deleteOptions, id: \.self) { option in
+                                Text(option).tag(option)
+                            }
+                        }
+                        .frame(width: 240)
+                        
+                        Text("添加至普通列表的项目不会被移除")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .padding(.horizontal, 60)
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(Color.gray.opacity(0.05))
     }
 }
 

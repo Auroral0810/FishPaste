@@ -19,9 +19,11 @@ class ClipboardContent: Identifiable {
     var category: String?
     var isPinned: Bool
     var title: String?  // 新增：内容标题
+    var sourceApp: (bundleIdentifier: String?, name: String?, icon: NSImage?)?  // 新增：来源应用信息
     
     init(id: UUID = UUID(), text: String? = nil, image: NSImage? = nil, images: [NSImage]? = nil, fileURLs: [URL]? = nil, 
-         category: String? = nil, timestamp: Date = Date(), isPinned: Bool = false, title: String? = nil) {
+         category: String? = nil, timestamp: Date = Date(), isPinned: Bool = false, title: String? = nil,
+         sourceApp: (String?, String?, NSImage?)? = nil) {
         self.id = id
         self.text = text
         self.image = image
@@ -31,6 +33,7 @@ class ClipboardContent: Identifiable {
         self.category = category
         self.isPinned = isPinned
         self.title = title
+        self.sourceApp = sourceApp
     }
     
     // 检查两个剪贴板内容是否相同
@@ -119,11 +122,14 @@ final class ClipboardItem {
     var category: String?
     var isPinned: Bool
     var title: String?  // 新增：内容标题
+    var sourceAppBundleID: String?  // 新增：来源应用的Bundle ID
+    var sourceAppName: String?  // 新增：来源应用名称
     
     init(id: UUID = UUID(), textContent: String? = nil, imageData: Data? = nil, 
          imagesData: [Data]? = nil, fileURLStrings: [String]? = nil, 
          category: String? = nil, timestamp: Date = Date(), 
-         isPinned: Bool = false, title: String? = nil) {
+         isPinned: Bool = false, title: String? = nil,
+         sourceAppBundleID: String? = nil, sourceAppName: String? = nil) {
         self.id = id
         self.textContent = textContent
         self.imageData = imageData
@@ -132,6 +138,8 @@ final class ClipboardItem {
         self.category = category
         self.isPinned = isPinned
         self.title = title
+        self.sourceAppBundleID = sourceAppBundleID
+        self.sourceAppName = sourceAppName
         
         // 安全地设置fileURLsString，避免空数组造成问题
         if let urls = fileURLStrings, !urls.isEmpty {
@@ -161,6 +169,16 @@ final class ClipboardItem {
             urls = urlStrings.compactMap { URL(string: $0) }
         }
         
+        // 获取应用图标
+        var appIcon: NSImage? = nil
+        if let bundleID = sourceAppBundleID {
+            appIcon = NSWorkspace.shared.icon(forFile: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.path ?? "")
+        }
+        
+        let sourceAppInfo: (String?, String?, NSImage?)? = 
+            (sourceAppBundleID != nil || sourceAppName != nil) ? 
+            (sourceAppBundleID, sourceAppName, appIcon) : nil
+        
         return ClipboardContent(
             id: id,
             text: textContent,
@@ -170,7 +188,8 @@ final class ClipboardItem {
             category: category,
             timestamp: timestamp,
             isPinned: isPinned,
-            title: title
+            title: title,
+            sourceApp: sourceAppInfo
         )
     }
 }

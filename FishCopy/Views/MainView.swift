@@ -373,7 +373,14 @@ struct MainClipboardItemRow: View {
     // 内容类型图标
     private var contentTypeIcon: some View {
         Group {
-            if item.image != nil {
+            // 优先使用来源应用图标（如果有）
+            if let sourceAppIcon = item.sourceApp?.icon, isShowSourceAppIcon() {
+                Image(nsImage: sourceAppIcon)
+                    .resizable()
+                    .scaledToFit()
+            }
+            // 否则使用默认的基于内容类型的图标
+            else if item.image != nil {
                 Image(systemName: "photo")
                     .foregroundColor(.blue)
             } else if item.fileURLs != nil && !(item.fileURLs?.isEmpty ?? true) {
@@ -390,6 +397,12 @@ struct MainClipboardItemRow: View {
                     .foregroundColor(.gray)
             }
         }
+    }
+    
+    // 根据设置决定是否显示来源应用图标
+    private func isShowSourceAppIcon() -> Bool {
+        // 从UserDefaults中获取设置
+        return UserDefaults.standard.bool(forKey: "showSourceAppIcon")
     }
     
     // 内容预览（简单版）
