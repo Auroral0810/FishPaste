@@ -40,6 +40,9 @@ struct StatusBarMenuView: View {
     // 添加分类管理器窗口状态
     @State private var showingCategoryManager = false
     
+    // 添加搜索显示状态变量
+    @State private var isSearching: Bool = true
+    
     // 固定高度常量
     private let searchBarHeight: CGFloat = 44
     private let tabBarHeight: CGFloat = 36  // 减小了标签栏高度
@@ -76,17 +79,34 @@ struct StatusBarMenuView: View {
                 .help("在独立窗口中打开") // 添加悬停提示
                 
                 // 搜索栏
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-                    
-                    TextField("输入开始搜索...", text: $searchText)
-                        .textFieldStyle(.plain)
+                if isSearching {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                        
+                        TextField("输入开始搜索...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .foregroundColor(.white)
+                    }
+                    .padding(6)
+                    .background(Color.black.opacity(0.3))
+                    .cornerRadius(8)
+                }
+                
+                Spacer()
+                
+                // 隐藏/显示搜索按钮
+                Button(action: {
+                    withAnimation {
+                        isSearching.toggle()
+                    }
+                }) {
+                    Image(systemName: isSearching ? "eye.slash" : "magnifyingglass")
                         .foregroundColor(.white)
                 }
-                .padding(6)
-                .background(Color.black.opacity(0.3))
-                .cornerRadius(8)
+                .buttonStyle(EffectButtonStyle())
+                .frame(width: 28, height: 28)
+                .help(isSearching ? "隐藏搜索" : "显示搜索") // 添加悬停提示
                 
                 // 置顶按钮
                 Button(action: {
@@ -290,15 +310,9 @@ struct StatusBarMenuView: View {
             Divider()
                 .background(Color.gray.opacity(0.3))
             
-            // 底部工具栏 - 使用ZStack实现真正的居中
-            ZStack {
-                // 中心层 - 居中显示项目计数
-                Text("\(filteredClipboardItems.count) 个项目")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                
-                // 顶层 - 左右两侧的按钮
+            // 底部操作区域
+            VStack(spacing: 0) {
+                // 项目计数和视图切换
                 HStack {
                     // 左侧视图切换按钮
                     Button(action: {
@@ -343,6 +357,13 @@ struct StatusBarMenuView: View {
                     
                     Spacer()
                     
+                    // 项目计数
+                    Text("\(filteredClipboardItems.count) 个项目")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                    
+                    Spacer()
+                    
                     // 清除历史按钮
                     Button(action: {
                         clipboardManager.clearHistory()
@@ -353,9 +374,9 @@ struct StatusBarMenuView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(red: 0.1, green: 0.1, blue: 0.12))
             }
-            .frame(height: bottomBarHeight)
-            .background(Color(red: 0.1, green: 0.1, blue: 0.12))
         }
         .background(Color(red: 0.1, green: 0.1, blue: 0.12)) // 深色背景
         .onAppear {
@@ -757,6 +778,10 @@ struct StatusBarMenuView: View {
         
         // 添加"数据库视图"选项
         let databaseViewItem = NSMenuItem(title: "数据库视图", action: nil, keyEquivalent: "")
+        databaseViewItem.target = self as AnyObject
+        databaseViewItem.setAction {
+            self.openDatabaseViewerWindow()
+        }
         menu.addItem(databaseViewItem)
         
         // 添加"设置..."选项
@@ -816,6 +841,34 @@ struct StatusBarMenuView: View {
     // 打开设置窗口
     private func openSettings() {
         FishCopyApp.shared.openSettingsWindow()
+    }
+    
+    // 打开数据库视图窗口
+    private func openDatabaseViewerWindow() {
+        // 创建并显示数据库视图窗口
+        let dbViewerWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        dbViewerWindow.center()
+        dbViewerWindow.title = "数据库视图"
+        
+        // 创建数据库视图并确保传递正确的modelContext
+        let dbViewerView = DatabaseViewerView(modelContext: modelContext)
+            .environment(\.modelContext, modelContext) // 确保通过环境也提供modelContext
+        
+        // 设置窗口内容
+        let hostingView = NSHostingView(rootView: dbViewerView)
+        dbViewerWindow.contentView = hostingView
+        
+        // 显示窗口
+        dbViewerWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用以防止过早释放
+        FishCopyApp.activeWindows.append(dbViewerWindow)
     }
 }
 

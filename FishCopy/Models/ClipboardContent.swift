@@ -31,14 +31,20 @@ class ClipboardContent: Identifiable {
     
     // 检查两个剪贴板内容是否相同
     func isEqual(to other: ClipboardContent) -> Bool {
-        if let text = text, let otherText = other.text, text == otherText {
+        // 首先检查IDs - 如果ID相同，它们肯定是同一个内容
+        if self.id == other.id {
             return true
         }
         
-        // 对于图片的比较
-        if let image = image, let otherImage = other.image {
-            // 这里应该添加更复杂的图片比较逻辑
-            return true
+        // 对于文本内容的比较
+        if let text = text, let otherText = other.text {
+            return text == otherText
+        }
+        
+        // 对于图片的比较 - 不再假设所有图片都相同
+        // 每个图片都视为唯一的，除非它们的ID相同(已在上面检查)
+        if image != nil && other.image != nil {
+            return false
         }
         
         // 对于文件URL的比较
@@ -47,6 +53,14 @@ class ClipboardContent: Identifiable {
             let urlSet = Set(urls.map { $0.absoluteString })
             let otherURLSet = Set(otherURLs.map { $0.absoluteString })
             return urlSet == otherURLSet
+        }
+        
+        // 如果它们都没有内容，则认为是相同的
+        if text == nil && other.text == nil && 
+           image == nil && other.image == nil && 
+           (fileURLs == nil || fileURLs?.isEmpty == true) && 
+           (other.fileURLs == nil || other.fileURLs?.isEmpty == true) {
+            return true
         }
         
         return false
