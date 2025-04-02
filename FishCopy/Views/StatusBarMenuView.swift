@@ -101,7 +101,7 @@ struct StatusBarMenuView: View {
                 
                 // 设置按钮
                 Button(action: {
-                    clipboardManager.showSettings()
+                    showSettingsMenu()
                 }) {
                     Image(systemName: "gearshape")
                         .foregroundColor(.white)
@@ -683,6 +683,135 @@ struct StatusBarMenuView: View {
             window.level = .normal
         }
     }
+    
+    // 打开设置窗口并指定选中的选项卡
+    private func openSettingsWindow(selectedTab: SettingsTab = .general) {
+        // 创建并显示设置窗口
+        let settingsWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 650, height: 480),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        settingsWindow.center()
+        settingsWindow.title = "FishCopy 设置"
+        
+        // 创建设置视图，并指定默认选中的选项卡
+        let settingsView = SettingsView(clipboardManager: clipboardManager, initialTab: selectedTab)
+        
+        // 设置窗口内容
+        let hostingView = NSHostingView(rootView: settingsView)
+        settingsWindow.contentView = hostingView
+        
+        // 显示窗口
+        settingsWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用以防止过早释放
+        FishCopyApp.activeWindows.append(settingsWindow)
+    }
+    
+    // 显示设置菜单
+    private func showSettingsMenu() {
+        // 创建菜单
+        let menu = NSMenu(title: "设置")
+        
+        // 添加"激活许可证"选项
+        let activateLicenseItem = NSMenuItem(title: "激活许可证", action: nil, keyEquivalent: "")
+        menu.addItem(activateLicenseItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // 添加"停止监控剪贴板"选项
+        let monitorToggleItem = NSMenuItem(
+            title: clipboardManager.isMonitoring ? "停止监控剪贴板" : "开始监控剪贴板",
+            action: #selector(NSApp.sendAction(_:to:from:)),
+            keyEquivalent: ""
+        )
+        monitorToggleItem.target = clipboardManager
+        monitorToggleItem.action = #selector(ClipboardManager.toggleMonitoring)
+        menu.addItem(monitorToggleItem)
+        
+        // 添加剪贴板监视间隔子菜单
+        let intervalSubmenu = NSMenu()
+        for interval in [0.5, 1.0, 2.0, 5.0] {
+            let item = NSMenuItem(
+                title: "\(interval)秒",
+                action: #selector(NSApp.sendAction(_:to:from:)),
+                keyEquivalent: ""
+            )
+            item.target = clipboardManager
+            item.representedObject = interval
+            item.action = #selector(ClipboardManager.updateInterval(_:))
+            if abs(interval - clipboardManager.monitoringInterval) < 0.1 {
+                item.state = .on
+            }
+            intervalSubmenu.addItem(item)
+        }
+        
+        let intervalItem = NSMenuItem(title: "剪贴板监视间隔", action: nil, keyEquivalent: "")
+        intervalItem.submenu = intervalSubmenu
+        menu.addItem(intervalItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // 添加"数据库视图"选项
+        let databaseViewItem = NSMenuItem(title: "数据库视图", action: nil, keyEquivalent: "")
+        menu.addItem(databaseViewItem)
+        
+        // 添加"设置..."选项
+        let settingsItem = NSMenuItem(title: "设置...", action: nil, keyEquivalent: "")
+        settingsItem.target = self as AnyObject
+        // 使用closure代替@objc方法
+        settingsItem.setAction {
+            self.openSettingsWindow(selectedTab: .general)
+        }
+        menu.addItem(settingsItem)
+        
+        // 添加"随系统启动"选项，带复选标记
+        let startupItem = NSMenuItem(
+            title: "随系统启动",
+            action: #selector(NSApp.sendAction(_:to:from:)),
+            keyEquivalent: ""
+        )
+        startupItem.target = clipboardManager
+        startupItem.action = #selector(ClipboardManager.toggleStartupLaunch)
+        // 获取当前启动状态并设置选中状态
+        if UserDefaults.standard.bool(forKey: "launchAtStartup") {
+            startupItem.state = .on
+        }
+        menu.addItem(startupItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // 添加"关于"选项
+        let aboutItem = NSMenuItem(title: "关于", action: nil, keyEquivalent: "")
+        aboutItem.target = self as AnyObject
+        // 使用closure代替@objc方法
+        aboutItem.setAction {
+            self.openSettingsWindow(selectedTab: .about)
+        }
+        menu.addItem(aboutItem)
+        
+        // 添加"发送反馈"选项
+        let feedbackItem = NSMenuItem(title: "发送反馈", action: nil, keyEquivalent: "")
+        menu.addItem(feedbackItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // 添加"退出"选项
+        let quitItem = NSMenuItem(
+            title: "退出",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        menu.addItem(quitItem)
+        
+        // 获取当前事件并显示菜单
+        if let event = NSApp.currentEvent {
+            NSMenu.popUpContextMenu(menu, with: event, for: NSApp.keyWindow?.contentView ?? NSView())
+        }
+    }
 }
 
 // 固定大小的标签按钮 - 更轻量和紧凑
@@ -982,6 +1111,28 @@ struct EffectButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
             .brightness(configuration.isPressed ? 0.1 : 0)
             .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+// NSMenuItem扩展，支持使用闭包作为action
+extension NSMenuItem {
+    private static var actionClosures = [NSMenuItem: () -> Void]()
+    
+    // 设置闭包作为action
+    func setAction(_ closure: @escaping () -> Void) {
+        // 保存闭包
+        NSMenuItem.actionClosures[self] = closure
+        
+        // 设置target和action
+        self.target = self
+        self.action = #selector(NSMenuItem.executeActionClosure(_:))
+    }
+    
+    // 执行保存的闭包
+    @objc private func executeActionClosure(_ sender: NSMenuItem) {
+        if let closure = NSMenuItem.actionClosures[self] {
+            closure()
+        }
     }
 }
 

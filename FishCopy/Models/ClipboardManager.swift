@@ -125,86 +125,29 @@ class ClipboardManager: ObservableObject {
     
     // 打开设置
     func showSettings() {
-        // 在实际应用中，这里会显示设置窗口
-        // 暂时用一个菜单替代
-        let menu = NSMenu(title: "设置")
+        // 创建并显示设置窗口
+        let settingsWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 650, height: 480),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        settingsWindow.center()
+        settingsWindow.title = "FishCopy 设置"
         
-        let monitorToggleItem = NSMenuItem(title: isMonitoring ? "停止监控剪贴板" : "开始监控剪贴板", 
-                                  action: #selector(NSApp.sendAction(_:to:from:)), 
-                                  keyEquivalent: "")
-        monitorToggleItem.target = self
-        monitorToggleItem.action = #selector(toggleMonitoring)
-        menu.addItem(monitorToggleItem)
+        // 创建设置视图
+        let settingsView = SettingsView(clipboardManager: self)
         
-        let intervalSubmenu = NSMenu()
-        for interval in [0.5, 1.0, 2.0, 5.0] {
-            let item = NSMenuItem(title: "\(interval)秒", 
-                                  action: #selector(NSApp.sendAction(_:to:from:)), 
-                                  keyEquivalent: "")
-            item.target = self
-            item.representedObject = interval
-            item.action = #selector(updateInterval(_:))
-            if abs(interval - monitoringInterval) < 0.1 {
-                item.state = .on
-            }
-            intervalSubmenu.addItem(item)
-        }
+        // 设置窗口内容
+        let hostingView = NSHostingView(rootView: settingsView)
+        settingsWindow.contentView = hostingView
         
-        let intervalItem = NSMenuItem(title: "剪贴板监视间隔", action: nil, keyEquivalent: "")
-        intervalItem.submenu = intervalSubmenu
-        menu.addItem(intervalItem)
+        // 显示窗口
+        settingsWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         
-        menu.addItem(NSMenuItem.separator())
-        
-        let startupItem = NSMenuItem(title: "随系统启动", 
-                                    action: #selector(NSApp.sendAction(_:to:from:)), 
-                                    keyEquivalent: "")
-        startupItem.target = self
-        startupItem.action = #selector(toggleStartupLaunch)
-        // 在实际应用中，这里应该检查是否已经设置为自启动
-        menu.addItem(startupItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        let aboutItem = NSMenuItem(title: "关于", 
-                                  action: #selector(NSApp.sendAction(_:to:from:)), 
-                                  keyEquivalent: "")
-        menu.addItem(aboutItem)
-        
-        let feedbackItem = NSMenuItem(title: "发送反馈", 
-                                     action: #selector(NSApp.sendAction(_:to:from:)), 
-                                     keyEquivalent: "")
-        menu.addItem(feedbackItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        let quitItem = NSMenuItem(title: "退出", 
-                                 action: #selector(NSApplication.terminate(_:)), 
-                                 keyEquivalent: "q")
-        menu.addItem(quitItem)
-        
-        // 显示菜单
-        if let event = NSApp.currentEvent {
-            NSMenu.popUpContextMenu(menu, with: event, for: NSApp.keyWindow?.contentView ?? NSView())
-        }
-    }
-    
-    @objc private func toggleMonitoring() {
-        if isMonitoring {
-            stopMonitoring()
-        } else {
-            startMonitoring()
-        }
-    }
-    
-    @objc private func updateInterval(_ sender: NSMenuItem) {
-        if let interval = sender.representedObject as? Double {
-            setMonitoringInterval(interval)
-        }
-    }
-    
-    @objc private func toggleStartupLaunch() {
-        // 实现设置/取消自启动的逻辑
+        // 保持窗口引用以防止过早释放
+        FishCopyApp.activeWindows.append(settingsWindow)
     }
     
     // 检查剪贴板是否有新内容
@@ -463,5 +406,28 @@ class ClipboardManager: ObservableObject {
             }
             return false
         }
+    }
+    
+    // 切换监控状态
+    @objc func toggleMonitoring() {
+        if isMonitoring {
+            stopMonitoring()
+        } else {
+            startMonitoring()
+        }
+    }
+    
+    // 更新监控间隔
+    @objc func updateInterval(_ sender: NSMenuItem) {
+        if let interval = sender.representedObject as? Double {
+            setMonitoringInterval(interval)
+        }
+    }
+    
+    // 切换启动状态
+    @objc func toggleStartupLaunch() {
+        let launchAtStartup = !UserDefaults.standard.bool(forKey: "launchAtStartup")
+        UserDefaults.standard.set(launchAtStartup, forKey: "launchAtStartup")
+        // 实际应用中，这里还应该设置启动项
     }
 } 

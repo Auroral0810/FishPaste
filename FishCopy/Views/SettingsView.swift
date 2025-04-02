@@ -57,58 +57,52 @@ struct SettingsView: View {
     let pasteFormats = ["粘贴为原始文本", "保持格式粘贴", "智能粘贴"]
     let deleteOptions = ["永不", "一周以后", "一个月以后", "三个月以后"]
     
+    // 初始化方法，允许指定初始选中的选项卡
+    init(clipboardManager: ClipboardManager, initialTab: SettingsTab = .general) {
+        self.clipboardManager = clipboardManager
+        // 使用_selectedTab以直接设置@State变量
+        self._selectedTab = State(initialValue: initialTab)
+    }
+    
     var body: some View {
-        NavigationSplitView {
-            List(SettingsTab.allCases, selection: $selectedTab) { tab in
-                HStack {
-                    Image(systemName: tab.icon)
-                        .frame(width: 20)
-                    Text(tab.rawValue)
+        TabView(selection: $selectedTab) {
+            generalTab
+                .tabItem { 
+                    Label(SettingsTab.general.rawValue, systemImage: SettingsTab.general.icon) 
                 }
-            }
-            .listStyle(.sidebar)
-            .frame(minWidth: 150)
-        } detail: {
-            TabView(selection: $selectedTab) {
-                generalTab
-                    .tabItem { 
-                        Label(SettingsTab.general.rawValue, systemImage: SettingsTab.general.icon) 
-                    }
-                    .tag(SettingsTab.general)
-                
-                shortcutsTab
-                    .tabItem { 
-                        Label(SettingsTab.shortcuts.rawValue, systemImage: SettingsTab.shortcuts.icon) 
-                    }
-                    .tag(SettingsTab.shortcuts)
-                
-                rulesTab
-                    .tabItem { 
-                        Label(SettingsTab.rules.rawValue, systemImage: SettingsTab.rules.icon) 
-                    }
-                    .tag(SettingsTab.rules)
-                
-                syncTab
-                    .tabItem { 
-                        Label(SettingsTab.sync.rawValue, systemImage: SettingsTab.sync.icon) 
-                    }
-                    .tag(SettingsTab.sync)
-                
-                advancedTab
-                    .tabItem { 
-                        Label(SettingsTab.advanced.rawValue, systemImage: SettingsTab.advanced.icon) 
-                    }
-                    .tag(SettingsTab.advanced)
-                
-                aboutTab
-                    .tabItem { 
-                        Label(SettingsTab.about.rawValue, systemImage: SettingsTab.about.icon) 
-                    }
-                    .tag(SettingsTab.about)
-            }
-            .padding()
-            .frame(minWidth: 400, minHeight: 300)
+                .tag(SettingsTab.general)
+            
+            shortcutsTab
+                .tabItem { 
+                    Label(SettingsTab.shortcuts.rawValue, systemImage: SettingsTab.shortcuts.icon) 
+                }
+                .tag(SettingsTab.shortcuts)
+            
+            rulesTab
+                .tabItem { 
+                    Label(SettingsTab.rules.rawValue, systemImage: SettingsTab.rules.icon) 
+                }
+                .tag(SettingsTab.rules)
+            
+            syncTab
+                .tabItem { 
+                    Label(SettingsTab.sync.rawValue, systemImage: SettingsTab.sync.icon) 
+                }
+                .tag(SettingsTab.sync)
+            
+            advancedTab
+                .tabItem { 
+                    Label(SettingsTab.advanced.rawValue, systemImage: SettingsTab.advanced.icon) 
+                }
+                .tag(SettingsTab.advanced)
+            
+            aboutTab
+                .tabItem { 
+                    Label(SettingsTab.about.rawValue, systemImage: SettingsTab.about.icon) 
+                }
+                .tag(SettingsTab.about)
         }
+        .padding()
         .frame(width: 650, height: 480)
         .environmentObject(clipboardManager)
     }
