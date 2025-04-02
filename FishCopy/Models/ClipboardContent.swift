@@ -131,10 +131,12 @@ final class ClipboardCategory {
     @Attribute(.unique) var name: String
     var color: String // 存储颜色的十六进制值
     var items: [ClipboardItem]?
+    var sortOrder: Int // 添加排序字段
     
-    init(name: String, color: String = "#0096FF") {
+    init(name: String, color: String = "#0096FF", sortOrder: Int = 0) {
         self.name = name
         self.color = color
         self.items = []
+        self.sortOrder = sortOrder
     }
 } 

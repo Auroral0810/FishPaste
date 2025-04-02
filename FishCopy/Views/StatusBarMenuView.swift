@@ -27,7 +27,7 @@ enum ViewMode: String, CaseIterable {
 struct StatusBarMenuView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     @Environment(\.modelContext) private var modelContext  // 添加modelContext
-    @Query var categories: [ClipboardCategory]  // 查询所有分类
+    @Query(sort: \ClipboardCategory.sortOrder) var categories: [ClipboardCategory]  // 明确按sortOrder排序
     @State private var searchText = ""
     @State private var selectedTab = "全部" // 默认选中"全部"标签
     
@@ -51,6 +51,9 @@ struct StatusBarMenuView: View {
     // 添加视图模式状态
     @State private var viewMode: ViewMode = .simpleList
     @State private var showingViewModeMenu = false
+    
+    // 状态变量，用于存储通知观察者
+    @State private var categoryChangeObserver: NSObjectProtocol?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -341,6 +344,50 @@ struct StatusBarMenuView: View {
         .onAppear {
             // 将modelContext传递给clipboardManager
             clipboardManager.setModelContext(modelContext)
+            
+            // 添加分类顺序变化的通知监听
+            setupCategoryChangeNotification()
+        }
+        .onDisappear {
+            // 移除通知监听
+            removeCategoryChangeNotification()
+        }
+    }
+    
+    // 设置通知监听
+    private func setupCategoryChangeNotification() {
+        categoryChangeObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("CategoryOrderChanged"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            self.refreshCategories()
+        }
+    }
+    
+    // 移除通知监听
+    private func removeCategoryChangeNotification() {
+        if let observer = categoryChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            categoryChangeObserver = nil
+        }
+    }
+    
+    // 添加刷新分类方法
+    private func refreshCategories() {
+        // 通过重载Query模拟器强制UI刷新
+        print("分类顺序已更新，强制刷新UI")
+        
+        // 一个技巧：创建一个零延迟的异步调度，强制SwiftUI重新评估@Query的结果
+        DispatchQueue.main.async {
+            // 这个空块会让SwiftUI在下一个渲染周期重新评估视图
+            // 包括刷新@Query的结果并重新排序标签
+        }
+        
+        // 为确保视图再次接收到新顺序，我们可以尝试重新设置modelContext
+        // 这会触发@Query重新连接到数据库
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.clipboardManager.setModelContext(self.modelContext)
         }
     }
     
