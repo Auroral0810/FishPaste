@@ -52,6 +52,16 @@ struct ClipboardItemContextMenu: ViewModifier {
                 
                 Divider()
                 
+                // 钉选选项
+                Button(action: {
+                    clipboardManager.togglePinStatus(for: item.id)
+                }) {
+                    Label(item.isPinned ? "取消钉选" : "钉选", 
+                          systemImage: item.isPinned ? "pin.slash" : "pin.fill")
+                }
+                
+                Divider()
+                
                 // 内容特定选项
                 Group {
                     // 图片相关选项
@@ -98,9 +108,7 @@ struct ClipboardItemContextMenu: ViewModifier {
                 Menu {
                     Button(action: {
                         // 添加到钉选逻辑
-                        var updatedItem = item
-                        updatedItem.isPinned = true
-                        // 更新项目
+                        clipboardManager.setPinStatus(for: item.id, isPinned: true)
                     }) {
                         Label("钉选", systemImage: "pin.fill")
                     }

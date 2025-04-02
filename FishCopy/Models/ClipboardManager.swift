@@ -140,7 +140,12 @@ class ClipboardManager: ObservableObject {
                 for item in savedItems {
                     let content = item.toClipboardContent()
                     clipboardHistory.append(content)
+                    print("加载项目: id=\(content.id), text=\(content.text ?? "无文本"), isPinned=\(content.isPinned)")
                 }
+                
+                // 添加日志以检查钉选项目
+                let pinnedItems = clipboardHistory.filter { $0.isPinned }
+                print("加载了 \(pinnedItems.count) 个钉选项目")
             } else {
                 print("数据库中没有保存的剪贴板项目")
             }
@@ -694,6 +699,34 @@ class ClipboardManager: ObservableObject {
             }
         }
         
+        // 首先检查是否已经存在相同ID的项目
+        do {
+            // 先获取实际的UUID值
+            let contentID = content.id
+            
+            let predicate = #Predicate<ClipboardItem> { item in
+                item.id == contentID
+            }
+            let descriptor = FetchDescriptor<ClipboardItem>(predicate: predicate)
+            
+            if let existingItem = try modelContext.fetch(descriptor).first {
+                // 如果已存在，则更新而不是插入
+                existingItem.textContent = content.text
+                existingItem.imageData = imageData
+                existingItem.imagesData = imagesData
+                existingItem.fileURLStrings = content.fileURLs?.map { $0.absoluteString }
+                existingItem.timestamp = content.timestamp
+                existingItem.category = content.category
+                existingItem.isPinned = content.isPinned
+                
+                try modelContext.save()
+                print("更新现有剪贴板项到数据库: ID=\(content.id), 钉选=\(content.isPinned)")
+                return
+            }
+        } catch {
+            print("检查项目是否存在时出错: \(error.localizedDescription)")
+        }
+        
         // 将ClipboardContent转换为可存储的ClipboardItem
         let clipboardItem = ClipboardItem(
             id: content.id,
@@ -712,7 +745,7 @@ class ClipboardManager: ObservableObject {
         // 尝试立即保存更改
         do {
             try modelContext.save()
-            print("成功保存剪贴板项到数据库")
+            print("成功保存剪贴板项到数据库: ID=\(content.id), 钉选=\(content.isPinned)")
         } catch {
             print("错误: 保存数据时出错: \(error.localizedDescription)")
         }
@@ -1186,5 +1219,72 @@ class ClipboardManager: ObservableObject {
         }
         
         return provider
+    }
+    
+    // 切换项目的钉选状态并保存到数据库
+    func togglePinStatus(for itemID: UUID) {
+        // 查找项目并更新状态
+        if let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) {
+            // 切换钉选状态
+            clipboardHistory[index].isPinned.toggle()
+            let newPinStatus = clipboardHistory[index].isPinned
+            
+            print("切换项目 \(itemID) 的钉选状态为: \(newPinStatus ? "钉选" : "取消钉选")")
+            
+            // 更新数据库中的记录
+            updateItemInDatabase(clipboardHistory[index])
+        }
+    }
+    
+    // 设置项目的钉选状态并保存到数据库
+    func setPinStatus(for itemID: UUID, isPinned: Bool) {
+        // 查找项目并更新状态
+        if let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) {
+            // 设置钉选状态
+            clipboardHistory[index].isPinned = isPinned
+            
+            print("设置项目 \(itemID) 的钉选状态为: \(isPinned ? "钉选" : "取消钉选")")
+            
+            // 更新数据库中的记录
+            updateItemInDatabase(clipboardHistory[index])
+        }
+    }
+    
+    // 更新数据库中的剪贴板项目
+    private func updateItemInDatabase(_ content: ClipboardContent) {
+        guard let modelContext = modelContext else {
+            print("警告: 无法更新数据库，模型上下文未初始化")
+            return
+        }
+        
+        do {
+            // 创建查询来找到相应的数据库记录 - 使用正确的UUID比较
+            let contentID = content.id // 获取实际的UUID值
+            let predicate = #Predicate<ClipboardItem> { item in
+                item.id == contentID
+            }
+            let descriptor = FetchDescriptor<ClipboardItem>(predicate: predicate)
+            
+            // 查找数据库中的项目
+            if let existingItem = try modelContext.fetch(descriptor).first {
+                // 更新现有项目的属性
+                existingItem.isPinned = content.isPinned
+                existingItem.category = content.category
+                
+                // 如果有其他属性更改，也可以在这里更新
+                existingItem.timestamp = content.timestamp
+                
+                // 保存更改
+                try modelContext.save()
+                print("成功更新数据库中的剪贴板项目: ID=\(content.id), 钉选=\(content.isPinned)")
+            } else {
+                print("错误: 在数据库中找不到ID为 \(content.id) 的项目")
+                
+                // 如果找不到，作为备选方案创建新记录
+                saveToDatabase(content)
+            }
+        } catch {
+            print("更新数据库中的剪贴板项目时出错: \(error.localizedDescription)")
+        }
     }
 } 

@@ -1339,6 +1339,14 @@ struct ClipboardItemView: View {
             
             Spacer()
             
+            // 钉选指示器
+            if item.isPinned {
+                Image(systemName: "pin.fill")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 12))
+                    .padding(.trailing, 4)
+            }
+            
             // 显示图片数量指示器
             if item.imageCount > 1 {
                 Text("\(item.imageCount)张图片")
