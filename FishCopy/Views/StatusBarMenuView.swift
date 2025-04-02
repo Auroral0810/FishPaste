@@ -9,12 +9,6 @@ import SwiftUI
 import SwiftData  // 添加SwiftData导入
 import AppKit  // 添加AppKit导入以使用NSWindow
 import Foundation
-// 使用Utils中的通知名称定义
-extension Notification.Name {
-    static var categoryOrderChanged: Notification.Name {
-        return Notification.Name("CategoryOrderChanged")
-    }
-}
 
 // 视图模式枚举 - 加入到结构体外部，便于复用
 enum ViewMode: String, CaseIterable {
@@ -356,10 +350,11 @@ struct StatusBarMenuView: View {
             
             // 订阅分类变更通知
             categoryChangeObserver = NotificationCenter.default.addObserver(
-                forName: .categoryOrderChanged,
+                forName: Notification.Name("CategoryOrderChanged"),
                 object: nil,
-                queue: .main) { _ in
-                    refreshCategories()
+                queue: .main
+            ) { _ in
+                self.refreshCategories()
             }
         }
         .onDisappear {
@@ -373,7 +368,7 @@ struct StatusBarMenuView: View {
     // 设置通知监听
     private func setupCategoryChangeNotification() {
         categoryChangeObserver = NotificationCenter.default.addObserver(
-            forName: .categoryOrderChanged,
+            forName: Notification.Name("CategoryOrderChanged"),
             object: nil,
             queue: .main
         ) { _ in

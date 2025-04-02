@@ -267,6 +267,14 @@ class ClipboardManager: ObservableObject {
         if hasContent {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
+                
+                // 触发状态栏图标旋转动画
+                print("检测到新复制内容，发送剪贴板变化通知")
+                NotificationCenter.default.post(
+                    name: Notification.Name("ClipboardContentChanged"),
+                    object: nil
+                )
+                
                 self.currentClipboardContent = content
                 // 避免重复添加相同内容
                 if !self.clipboardHistory.contains(where: { $0.isEqual(to: content) }) {
@@ -368,6 +376,13 @@ class ClipboardManager: ObservableObject {
                 }
             }
         }
+        
+        // 触发状态栏图标旋转动画
+        print("手动复制内容，发送剪贴板变化通知")
+        NotificationCenter.default.post(
+            name: Notification.Name("ClipboardContentChanged"),
+            object: nil
+        )
     }
     
     // 清除所有历史记录

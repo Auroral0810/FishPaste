@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import AppKit
 
 @main
 struct FishCopyApp: App {
@@ -23,9 +24,17 @@ struct FishCopyApp: App {
     // 全局活动窗口引用数组，防止窗口被释放
     static var activeWindows: [NSWindow] = []
     
+    // 状态栏图标动画控制器
+    private let statusItemAnimator = StatusItemAnimator.shared
+    
     init() {
         FishCopyApp.shared = self
+        
+        // 初始化状态栏动画控制器(这样确保它在应用程序生命周期内存在)
+        print("FishCopyApp初始化，设置状态栏动画器")
+        _ = statusItemAnimator
     }
+    
     
     // SwiftData模型容器配置
     var sharedModelContainer: ModelContainer = {

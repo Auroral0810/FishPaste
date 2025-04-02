@@ -389,7 +389,7 @@ struct CategoryManagerView: View {
             print("保存分类顺序成功")
             
             // 发送通知，通知导航栏更新分类顺序
-            NotificationCenter.default.post(name: .categoryOrderChanged, object: nil)
+            NotificationCenter.default.post(name: Notification.Name("CategoryOrderChanged"), object: nil)
             
             // 关闭窗口
             closeWindow()
