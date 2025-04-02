@@ -1113,7 +1113,7 @@ struct SettingsView: View {
                 HStack(spacing: 20) {
                     Button("隐私政策") {
                         // 打开隐私政策
-                        if let url = URL(string: "https://fishcopy.app/privacy") {
+                        if let url = URL(string: "https://auroral0810.github.io/fishpaste-pages/privacy.html") {
                             NSWorkspace.shared.open(url)
                         }
                     }
@@ -1121,7 +1121,7 @@ struct SettingsView: View {
                     
                     Button("服务条款") {
                         // 打开服务条款
-                        if let url = URL(string: "https://fishcopy.app/terms") {
+                        if let url = URL(string: "https://auroral0810.github.io/fishpaste-pages/privacy.html ") {
                             NSWorkspace.shared.open(url)
                         }
                     }
