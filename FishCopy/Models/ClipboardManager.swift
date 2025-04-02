@@ -260,6 +260,12 @@ class ClipboardManager: ObservableObject {
     private func processClipboardContent(_ pasteboard: NSPasteboard) {
         print("开始处理剪贴板内容")
         
+        // 检查是否是内部复制操作,如果是内部复制操作则不处理
+        if isInternalCopyOperation || Date().timeIntervalSince(lastInternalCopyTime) < 1.0 {
+            print("检测到内部复制操作，跳过处理")
+            return
+        }
+        
         // 检查模型上下文是否初始化
         if modelContext == nil {
             print("警告: 模型上下文未初始化，尝试延迟处理")
@@ -343,7 +349,7 @@ class ClipboardManager: ObservableObject {
                         )
                         
                         // 添加到历史记录
-                        if !self.clipboardHistory.contains(where: { $0.isEqual(to: fileContent) }) {
+                        if !self.isContentDuplicate(fileContent) {
                             self.clipboardHistory.insert(fileContent, at: 0)
                             print("保存文件 '\(fileName)' 为单独剪贴板项，图标类型: \(fileIcon.size)")
                             
@@ -477,7 +483,7 @@ class ClipboardManager: ObservableObject {
                         )
                         
                         // 添加到历史记录
-                        if !self.clipboardHistory.contains(where: { $0.isEqual(to: singleImageContent) }) {
+                        if !self.isContentDuplicate(singleImageContent) {
                             self.clipboardHistory.insert(singleImageContent, at: 0)
                             
                             // 保存到数据库
@@ -520,19 +526,27 @@ class ClipboardManager: ObservableObject {
                 
                 self.currentClipboardContent = content
                 
-                // 避免重复添加相同内容
-                if !self.clipboardHistory.contains(where: { $0.isEqual(to: content) }) {
-                    self.clipboardHistory.insert(content, at: 0)
-                    
-                    // 保存到数据库
-                    if self.modelContext != nil {
-                        self.saveToDatabase(content)
+                // 安全地处理，避免拖拽时的重复处理
+                if (content.text?.isEmpty == false) || content.image != nil || (content.images != nil && !content.images!.isEmpty) {
+                    // 更新剪贴板历史记录
+                    // 避免重复添加相同内容
+                    if !self.isContentDuplicate(content) {
+                        self.clipboardHistory.insert(content, at: 0)
+                        
+                        // 保存到数据库
+                        if self.modelContext != nil {
+                            self.saveToDatabase(content)
+                        }
+                        
+                        // 播放剪贴板变化音效
+                        self.playClipboardChangedSound()
+                    } else {
+                        print("跳过重复内容")
                     }
+                } else {
+                    print("内容无效，跳过处理")
                 }
             }
-            
-            // 播放剪贴板变化音效
-            playClipboardChangedSound()
         } else {
             print("剪贴板中没有检测到有效内容")
         }
@@ -548,18 +562,56 @@ class ClipboardManager: ObservableObject {
         return NSImage(data: pngData)
     }
     
-    // 辅助方法: 检查图像是否重复
-    private func isDuplicateImage(_ newImage: NSImage, in existingImages: [NSImage]) -> Bool {
-        guard let newTiff = newImage.tiffRepresentation else {
+    // 检查两个图片是否重复
+    private func isDuplicateImage(_ image1: NSImage, _ image2: NSImage) -> Bool {
+        // 简单的尺寸比较
+        if abs(image1.size.width - image2.size.width) > 1 || abs(image1.size.height - image2.size.height) > 1 {
             return false
         }
         
-        for existingImage in existingImages {
-            if let existingTiff = existingImage.tiffRepresentation,
-               newTiff == existingTiff {
+        // 将两个图片转换为相同格式的数据进行比较
+        guard let tiffData1 = image1.tiffRepresentation,
+              let bitmap1 = NSBitmapImageRep(data: tiffData1),
+              let pngData1 = bitmap1.representation(using: .png, properties: [:]),
+              let tiffData2 = image2.tiffRepresentation,
+              let bitmap2 = NSBitmapImageRep(data: tiffData2),
+              let pngData2 = bitmap2.representation(using: .png, properties: [:]) else {
+            return false
+        }
+        
+        // 数据长度相差太大时，认为不是同一图片
+        if abs(pngData1.count - pngData2.count) > pngData1.count / 10 {
+            return false
+        }
+        
+        // 进行完整的数据比较
+        return pngData1 == pngData2
+    }
+    
+    // 检查图片是否与数组中的任何图片重复
+    private func isDuplicateImage(_ image: NSImage, in images: [NSImage]) -> Bool {
+        for existingImage in images {
+            if isDuplicateImage(image, existingImage) {
                 return true
             }
         }
+        return false
+    }
+    
+    // 检查两个剪贴板内容对象是否有相同的图片
+    private func hasSameImage(_ content1: ClipboardContent, _ content2: ClipboardContent) -> Bool {
+        // 如果两者都有单张图片
+        if let image1 = content1.image, let image2 = content2.image {
+            return isDuplicateImage(image1, image2)
+        }
+        
+        // 如果两者都有多张图片
+        if let images1 = content1.images, let images2 = content2.images,
+           !images1.isEmpty, !images2.isEmpty {
+            // 只比较第一张图片，简化复杂度
+            return isDuplicateImage(images1[0], images2[0])
+        }
+        
         return false
     }
     
@@ -667,39 +719,26 @@ class ClipboardManager: ObservableObject {
     
     // 保存剪贴板内容到数据库
     private func saveToDatabase(_ content: ClipboardContent) {
-        guard let modelContext = modelContext else { 
-            print("警告: 模型上下文未初始化，数据未保存") 
-            return 
+        guard let modelContext = modelContext else {
+            print("警告: 无法保存到数据库，模型上下文未初始化")
+            return
         }
         
-        // 安全处理单个图像数据
+        // 从图片创建Data
         var imageData: Data? = nil
-        if let image = content.image {
-            // 尝试获取更可靠的PNG表示而非TIFF
-            if let tiffData = image.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiffData),
-               let pngData = bitmap.representation(using: .png, properties: [:]) {
-                imageData = pngData
-            }
+        if let image = content.image, let tiffData = image.tiffRepresentation {
+            imageData = tiffData
         }
         
-        // 处理多个图像数据
+        // 从多张图片创建Data数组
         var imagesData: [Data]? = nil
         if let images = content.images, !images.isEmpty {
-            imagesData = []
-            for img in images {
-                if let tiffData = img.tiffRepresentation,
-                   let bitmap = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmap.representation(using: .png, properties: [:]) {
-                    imagesData?.append(pngData)
-                }
-            }
-            if imagesData!.isEmpty {
-                imagesData = nil
+            imagesData = images.compactMap { image in
+                image.tiffRepresentation
             }
         }
         
-        // 首先检查是否已经存在相同ID的项目
+        // 检查数据库中是否已存在此ID的项目
         do {
             // 先获取实际的UUID值
             let contentID = content.id
@@ -718,9 +757,10 @@ class ClipboardManager: ObservableObject {
                 existingItem.timestamp = content.timestamp
                 existingItem.category = content.category
                 existingItem.isPinned = content.isPinned
+                existingItem.title = content.title  // 更新标题字段
                 
                 try modelContext.save()
-                print("更新现有剪贴板项到数据库: ID=\(content.id), 钉选=\(content.isPinned)")
+                print("更新现有剪贴板项到数据库: ID=\(content.id), 标题=\(content.title ?? "无"), 钉选=\(content.isPinned)")
                 return
             }
         } catch {
@@ -736,7 +776,8 @@ class ClipboardManager: ObservableObject {
             fileURLStrings: content.fileURLs?.map { $0.absoluteString },
             category: content.category,
             timestamp: content.timestamp,
-            isPinned: content.isPinned
+            isPinned: content.isPinned,
+            title: content.title  // 保存标题字段
         )
         
         // 保存到数据库
@@ -745,9 +786,9 @@ class ClipboardManager: ObservableObject {
         // 尝试立即保存更改
         do {
             try modelContext.save()
-            print("成功保存剪贴板项到数据库: ID=\(content.id), 钉选=\(content.isPinned)")
+            print("成功保存剪贴板项到数据库: ID=\(content.id), 标题=\(content.title ?? "无"), 钉选=\(content.isPinned)")
         } catch {
-            print("错误: 保存数据时出错: \(error.localizedDescription)")
+            print("保存到数据库时出错: \(error.localizedDescription)")
         }
     }
     
@@ -1267,16 +1308,33 @@ class ClipboardManager: ObservableObject {
             
             // 查找数据库中的项目
             if let existingItem = try modelContext.fetch(descriptor).first {
+                // 从图片创建Data
+                var imageData: Data? = nil
+                if let image = content.image, let tiffData = image.tiffRepresentation {
+                    imageData = tiffData
+                }
+                
+                // 从多图片创建Data数组
+                var imagesData: [Data]? = nil
+                if let images = content.images, !images.isEmpty {
+                    imagesData = images.compactMap { image in
+                        image.tiffRepresentation
+                    }
+                }
+                
                 // 更新现有项目的属性
+                existingItem.textContent = content.text
+                existingItem.imageData = imageData
+                existingItem.imagesData = imagesData
+                existingItem.fileURLStrings = content.fileURLs?.map { $0.absoluteString }
                 existingItem.isPinned = content.isPinned
                 existingItem.category = content.category
-                
-                // 如果有其他属性更改，也可以在这里更新
                 existingItem.timestamp = content.timestamp
+                existingItem.title = content.title  // 更新标题字段
                 
                 // 保存更改
                 try modelContext.save()
-                print("成功更新数据库中的剪贴板项目: ID=\(content.id), 钉选=\(content.isPinned)")
+                print("成功更新数据库中的剪贴板项目: ID=\(content.id), 标题=\(content.title ?? "无"), 钉选=\(content.isPinned)")
             } else {
                 print("错误: 在数据库中找不到ID为 \(content.id) 的项目")
                 
@@ -1286,5 +1344,175 @@ class ClipboardManager: ObservableObject {
         } catch {
             print("更新数据库中的剪贴板项目时出错: \(error.localizedDescription)")
         }
+    }
+    
+    // 更新剪贴板文本内容
+    func updateTextContent(for itemID: UUID, newText: String, newTitle: String? = nil) {
+        // 查找项目
+        if let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) {
+            // 更新文本内容
+            clipboardHistory[index].text = newText
+            
+            // 如果提供了标题，则更新标题
+            if let title = newTitle {
+                clipboardHistory[index].title = title
+            }
+            
+            // 更新时间戳
+            clipboardHistory[index].timestamp = Date()
+            
+            // 更新数据库
+            updateItemInDatabase(clipboardHistory[index])
+            
+            print("已更新剪贴板项目（ID: \(itemID)）的文本内容")
+        }
+    }
+    
+    // 更新剪贴板图片内容
+    func updateImageContent(for itemID: UUID, newImage: NSImage, newTitle: String? = nil) {
+        // 查找项目
+        if let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) {
+            // 更新图片内容
+            clipboardHistory[index].image = newImage
+            
+            // 如果是多图片，则替换为单图片
+            if clipboardHistory[index].images != nil {
+                clipboardHistory[index].images = [newImage]
+            }
+            
+            // 如果提供了标题，则更新标题
+            if let title = newTitle {
+                clipboardHistory[index].title = title
+            }
+            
+            // 更新时间戳
+            clipboardHistory[index].timestamp = Date()
+            
+            // 更新数据库
+            updateItemInDatabase(clipboardHistory[index])
+            
+            print("已更新剪贴板项目（ID: \(itemID)）的图片内容")
+        }
+    }
+    
+    // 更新多张图片内容
+    func updateMultipleImages(for itemID: UUID, newImages: [NSImage], newTitle: String? = nil) {
+        // 查找项目
+        if let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) {
+            // 更新图片内容
+            clipboardHistory[index].images = newImages
+            
+            // 更新第一张作为主图片
+            if let firstImage = newImages.first {
+                clipboardHistory[index].image = firstImage
+            }
+            
+            // 如果提供了标题，则更新标题
+            if let title = newTitle {
+                clipboardHistory[index].title = title
+            }
+            
+            // 更新时间戳
+            clipboardHistory[index].timestamp = Date()
+            
+            // 更新数据库
+            updateItemInDatabase(clipboardHistory[index])
+            
+            print("已更新剪贴板项目（ID: \(itemID)）的多张图片内容")
+        }
+    }
+    
+    // 更新剪贴板项目的标题
+    func updateTitle(for id: UUID, newTitle: String) {
+        print("已更新剪贴板项目（ID: \(id)）的标题为：\(newTitle)")
+        
+        // 尝试在历史记录中找到相应的项目
+        if let index = clipboardHistory.firstIndex(where: { $0.id == id }) {
+            clipboardHistory[index].title = newTitle
+            
+            // 如果项目存在于数据库中，也更新数据库
+            if let modelContext = modelContext {
+                do {
+                    let descriptor = FetchDescriptor<ClipboardItem>(
+                        predicate: #Predicate<ClipboardItem> { item in
+                            item.id == id
+                        }
+                    )
+                    
+                    if let existingItem = try modelContext.fetch(descriptor).first {
+                        existingItem.title = newTitle
+                        try modelContext.save()
+                        print("成功更新数据库中的剪贴板项目: ID=\(id), 标题=\(newTitle), 钉选=\(existingItem.isPinned)")
+                    }
+                } catch {
+                    print("更新数据库中的标题时出错: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    // 根据ID获取剪贴板项目的标题
+    func getItemTitle(for id: UUID) -> String? {
+        // 在历史记录中查找项目
+        if let item = clipboardHistory.first(where: { $0.id == id }) {
+            return item.title
+        }
+        
+        // 如果在内存中找不到，尝试从数据库中查找
+        if let modelContext = modelContext {
+            do {
+                let descriptor = FetchDescriptor<ClipboardItem>(
+                    predicate: #Predicate<ClipboardItem> { item in
+                        item.id == id
+                    }
+                )
+                
+                if let existingItem = try modelContext.fetch(descriptor).first {
+                    return existingItem.title
+                }
+            } catch {
+                print("从数据库获取标题时出错: \(error.localizedDescription)")
+            }
+        }
+        
+        return nil
+    }
+    
+    // 在clipboardHistory插入内容前和内部复制时检查是否重复
+    private func isContentDuplicate(_ newContent: ClipboardContent) -> Bool {
+        for existingContent in clipboardHistory {
+            // 如果ID相同，认为是同一个内容
+            if newContent.id == existingContent.id {
+                return true
+            }
+            
+            // 对于文本内容进行比较
+            if let newText = newContent.text, let existingText = existingContent.text {
+                if newText == existingText {
+                    return true
+                }
+            }
+            
+            // 比较图片内容而非引用
+            if (newContent.image != nil && existingContent.image != nil) ||
+               (newContent.images != nil && existingContent.images != nil) {
+                if hasSameImage(newContent, existingContent) {
+                    return true
+                }
+            }
+            
+            // 比较文件URL
+            if let newURLs = newContent.fileURLs, let existingURLs = existingContent.fileURLs,
+               !newURLs.isEmpty, !existingURLs.isEmpty {
+                // 将URL转换为字符串集合进行比较
+                let newURLSet = Set(newURLs.map { $0.absoluteString })
+                let existingURLSet = Set(existingURLs.map { $0.absoluteString })
+                if newURLSet == existingURLSet {
+                    return true
+                }
+            }
+        }
+        
+        return false
     }
 } 

@@ -1316,57 +1316,126 @@ struct ClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
     let isSelected: Bool
+    @State private var localTitle: String? = nil
     
     var body: some View {
-        HStack(spacing: 12) {
-            // 选中状态指示器（多选模式下显示）
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.blue)
-                    .font(.system(size: 16))
-                    .frame(width: 24, height: 24)
-            } else {
-                // 内容类型图标
-                contentTypeIcon
-                    .frame(width: 24, height: 24)
+        VStack(spacing: 4) {
+            // 如果有标题，显示标题
+            if let title = localTitle ?? item.title, !title.isEmpty {
+                HStack {
+                    Text(title)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(Color(hex: "#49b1f5"))
+                        .lineLimit(1)
+                        .padding(.leading, 30)
+                    Spacer()
+                }
+                .padding(.bottom, 2)
             }
             
-            // 内容预览
-            Text(getPreviewText())
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundColor(.white)
-            
-            Spacer()
-            
-            // 钉选指示器
-            if item.isPinned {
-                Image(systemName: "pin.fill")
-                    .foregroundColor(.orange)
-                    .font(.system(size: 12))
-                    .padding(.trailing, 4)
-            }
-            
-            // 显示图片数量指示器
-            if item.imageCount > 1 {
-                Text("\(item.imageCount)张图片")
+            HStack(spacing: 12) {
+                // 选中状态指示器（多选模式下显示）
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 16))
+                        .frame(width: 24, height: 24)
+                } else {
+                    // 内容类型图标
+                    contentTypeIcon
+                        .frame(width: 24, height: 24)
+                }
+                
+                // 内容预览
+                Text(getPreviewText())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                // 钉选指示器
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 12))
+                        .padding(.trailing, 4)
+                }
+                
+                // 显示图片数量指示器
+                if item.imageCount > 1 {
+                    Text("\(item.imageCount)张图片")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.2))
+                        .cornerRadius(4)
+                }
+                
+                // 时间戳
+                Text(item.timestamp, style: .time)
                     .font(.caption)
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.blue.opacity(0.2))
-                    .cornerRadius(4)
+                    .foregroundColor(.gray)
             }
-            
-            // 时间戳
-            Text(item.timestamp, style: .time)
-                .font(.caption)
-                .foregroundColor(.gray)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .padding(.horizontal, 12)
         .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
+        .onAppear {
+            // 初始化本地标题
+            localTitle = item.title
+            
+            // 监听通知
+            setupNotificationObservers()
+        }
+        .onDisappear {
+            // 移除通知监听
+            removeNotificationObservers()
+        }
+    }
+    
+    // 设置通知监听
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("ClipboardItemUpdated"),
+            object: nil,
+            queue: .main
+        ) { notification in
+            // 检查更新的是否是当前项目
+            if let userInfo = notification.userInfo,
+               let updatedID = userInfo["itemID"] as? UUID,
+               updatedID == item.id {
+                // 强制刷新本地标题
+                self.localTitle = self.clipboardManager.getItemTitle(for: item.id)
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("RefreshClipboardView"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            // 强制刷新本地标题
+            self.localTitle = self.clipboardManager.getItemTitle(for: item.id)
+        }
+    }
+    
+    // 移除通知监听
+    private func removeNotificationObservers() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("ClipboardItemUpdated"),
+            object: nil
+        )
+        
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("RefreshClipboardView"),
+            object: nil
+        )
     }
     
     // 内容类型图标
@@ -1425,9 +1494,11 @@ struct RichClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
     let isSelected: Bool
+    @State private var localTitle: String? = nil
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // 顶部信息行
             HStack {
                 // 选中状态指示器或内容类型图标
                 if isSelected {
@@ -1440,11 +1511,26 @@ struct RichClipboardItemView: View {
                         .frame(width: 24, height: 24)
                 }
                 
-                Text(getPreviewText())
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
+                // 如果有标题则显示标题，否则显示内容预览
+                if let title = localTitle ?? item.title, !title.isEmpty {
+                    Text(title)
+                        .fontWeight(.medium)
+                        .foregroundColor(Color(hex: "#49b1f5"))
+                } else {
+                    Text(getPreviewText())
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+                }
                 
                 Spacer()
+                
+                // 钉选指示器
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 12))
+                        .padding(.trailing, 4)
+                }
                 
                 // 显示图片数量指示器
                 if item.imageCount > 1 {
@@ -1463,13 +1549,22 @@ struct RichClipboardItemView: View {
             }
             
             // 添加更多预览内容
-            if let text = item.text {
+            if let title = localTitle ?? item.title, !title.isEmpty, let text = item.text {
+                // 有标题且有文本时，显示文本预览
+                Text(text)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .lineLimit(2)
+                    .padding(.leading, 28)
+            } else if let text = item.text {
+                // 无标题但有文本时，显示文本预览
                 Text(text)
                     .font(.caption)
                     .foregroundColor(.gray)
                     .lineLimit(2)
                     .padding(.leading, 28)
             } else if item.imageCount == 1, let image = item.displayImage {
+                // 图片内容显示缩略图
                 HStack {
                     Spacer()
                     Image(nsImage: image)
@@ -1486,6 +1581,58 @@ struct RichClipboardItemView: View {
         .padding(.horizontal, 12)
         .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
+        .onAppear {
+            // 初始化本地标题
+            localTitle = item.title
+            
+            // 监听通知
+            setupNotificationObservers()
+        }
+        .onDisappear {
+            // 移除通知监听
+            removeNotificationObservers()
+        }
+    }
+    
+    // 设置通知监听
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("ClipboardItemUpdated"),
+            object: nil,
+            queue: .main
+        ) { notification in
+            // 检查更新的是否是当前项目
+            if let userInfo = notification.userInfo,
+               let updatedID = userInfo["itemID"] as? UUID,
+               updatedID == item.id {
+                // 强制刷新本地标题
+                self.localTitle = self.clipboardManager.getItemTitle(for: item.id)
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("RefreshClipboardView"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            // 强制刷新本地标题
+            self.localTitle = self.clipboardManager.getItemTitle(for: item.id)
+        }
+    }
+    
+    // 移除通知监听
+    private func removeNotificationObservers() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("ClipboardItemUpdated"),
+            object: nil
+        )
+        
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("RefreshClipboardView"),
+            object: nil
+        )
     }
     
     // 这里复用与ClipboardItemView相同的辅助方法
@@ -1618,23 +1765,62 @@ struct GridClipboardItemView: View {
                     }
                     .cornerRadius(6)
                 }
+                
+                // 钉选指示器 - 右上角
+                if item.isPinned {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "pin.fill")
+                                .foregroundColor(.orange)
+                                .font(.system(size: 12))
+                                .padding(6)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        Spacer()
+                    }
+                    .padding(4)
+                }
             }
             
             // 底部信息
-            HStack(spacing: 4) {
-                contentTypeIcon
-                    .font(.system(size: 12))
-                    .foregroundColor(.white)
-                    .frame(width: 16, height: 16)
-                
-                if let text = item.text, text.count > 15 {
-                    Text(text.prefix(15) + "...")
-                        .font(.system(size: 9))
+            VStack(alignment: .leading, spacing: 2) {
+                // 如果有标题，优先显示标题
+                if let title = item.title, !title.isEmpty {
+                    Text(title)
+                        .font(.system(size: 10))
+                        .fontWeight(.medium)
                         .foregroundColor(.white)
                         .lineLimit(1)
+                } else {
+                    // 显示内容预览
+                    HStack(spacing: 4) {
+                        contentTypeIcon
+                            .font(.system(size: 10))
+                            .foregroundColor(.white)
+                            .frame(width: 12, height: 12)
+                        
+                        if let text = item.text, text.count > 15 {
+                            Text(text.prefix(15) + "...")
+                                .font(.system(size: 9))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                        } else if item.imageCount > 0 {
+                            Text(item.imageCount > 1 ? "\(item.imageCount)张图片" : "图片")
+                                .font(.system(size: 9))
+                                .foregroundColor(.white)
+                        }
+                    }
                 }
+                
+                // 时间戳
+                Text(item.timestamp, style: .time)
+                    .font(.system(size: 8))
+                    .foregroundColor(.gray)
             }
             .padding(.top, 4)
+            .padding(.horizontal, 4)
         }
         .contentShape(Rectangle())
         .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)

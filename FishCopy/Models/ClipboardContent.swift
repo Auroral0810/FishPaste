@@ -18,9 +18,10 @@ class ClipboardContent: Identifiable {
     var timestamp: Date
     var category: String?
     var isPinned: Bool
+    var title: String?  // 新增：内容标题
     
     init(id: UUID = UUID(), text: String? = nil, image: NSImage? = nil, images: [NSImage]? = nil, fileURLs: [URL]? = nil, 
-         category: String? = nil, timestamp: Date = Date(), isPinned: Bool = false) {
+         category: String? = nil, timestamp: Date = Date(), isPinned: Bool = false, title: String? = nil) {
         self.id = id
         self.text = text
         self.image = image
@@ -29,6 +30,7 @@ class ClipboardContent: Identifiable {
         self.timestamp = timestamp
         self.category = category
         self.isPinned = isPinned
+        self.title = title
     }
     
     // 检查两个剪贴板内容是否相同
@@ -43,16 +45,8 @@ class ClipboardContent: Identifiable {
             return text == otherText
         }
         
-        // 对于图片的比较 - 不再假设所有图片都相同
-        // 每个图片都视为唯一的，除非它们的ID相同(已在上面检查)
-        if image != nil && other.image != nil {
-            return false
-        }
-        
-        // 多图片比较 - 如果两边都有images数组，不做进一步比较，认为是不同的
-        if (images != nil && !images!.isEmpty) && (other.images != nil && !other.images!.isEmpty) {
-            return false
-        }
+        // 对于图片的比较，不能直接比较引用，应检查图片的实际内容
+        // 注意：图片比较可能会很耗费资源
         
         // 对于文件URL的比较
         if let urls = fileURLs, let otherURLs = other.fileURLs {
@@ -124,11 +118,12 @@ final class ClipboardItem {
     var timestamp: Date
     var category: String?
     var isPinned: Bool
+    var title: String?  // 新增：内容标题
     
     init(id: UUID = UUID(), textContent: String? = nil, imageData: Data? = nil, 
          imagesData: [Data]? = nil, fileURLStrings: [String]? = nil, 
          category: String? = nil, timestamp: Date = Date(), 
-         isPinned: Bool = false) {
+         isPinned: Bool = false, title: String? = nil) {
         self.id = id
         self.textContent = textContent
         self.imageData = imageData
@@ -136,6 +131,7 @@ final class ClipboardItem {
         self.timestamp = timestamp
         self.category = category
         self.isPinned = isPinned
+        self.title = title
         
         // 安全地设置fileURLsString，避免空数组造成问题
         if let urls = fileURLStrings, !urls.isEmpty {
@@ -173,7 +169,8 @@ final class ClipboardItem {
             fileURLs: urls,
             category: category,
             timestamp: timestamp,
-            isPinned: isPinned
+            isPinned: isPinned,
+            title: title
         )
     }
 }
