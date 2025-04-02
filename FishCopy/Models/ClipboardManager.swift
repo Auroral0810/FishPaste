@@ -10,6 +10,7 @@ import Combine
 import SwiftData
 import AppKit
 import UniformTypeIdentifiers  // 添加 UTType 支持
+import ServiceManagement  // 添加 ServiceManagement 框架支持
 
 // 剪贴板管理器：负责监控系统剪贴板变化和管理历史记录
 class ClipboardManager: ObservableObject {
@@ -857,6 +858,77 @@ class ClipboardManager: ObservableObject {
     @objc func toggleStartupLaunch() {
         let launchAtStartup = !UserDefaults.standard.bool(forKey: "launchAtStartup")
         UserDefaults.standard.set(launchAtStartup, forKey: "launchAtStartup")
-        // 实际应用中，这里还应该设置启动项
+        
+        // 设置或移除登录项
+        setLaunchAtStartup(launchAtStartup)
+    }
+    
+    // 设置随系统启动
+    func setLaunchAtStartup(_ enable: Bool) {
+        // 获取应用的 Bundle ID
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            print("无法获取应用 Bundle ID")
+            notifyUser(title: "设置失败", message: "无法获取应用标识符")
+            return
+        }
+        
+        if #available(macOS 13.0, *) {
+            // 使用 macOS 13 及以上版本的新 API
+            Task {
+                do {
+                    let service = SMAppService.mainApp
+                    
+                    // 获取当前状态
+                    let currentStatus = service.status
+                    print("当前登录项状态: \(currentStatus)")
+                    
+                    if enable {
+                        // 注册为登录项
+                        if currentStatus != .enabled {
+                            try service.register()
+                            print("已成功将应用设置为随系统启动")
+                            notifyUser(title: "设置成功", message: "已将应用设置为随系统启动")
+                        } else {
+                            print("应用已设置为随系统启动")
+                        }
+                    } else {
+                        // 取消注册为登录项
+                        if currentStatus == .enabled {
+                            try service.unregister()
+                            print("已成功取消应用随系统启动设置")
+                            notifyUser(title: "设置已关闭", message: "已取消应用随系统启动设置")
+                        } else {
+                            print("应用未设置为随系统启动")
+                        }
+                    }
+                } catch {
+                    print("设置登录项失败: \(error.localizedDescription)")
+                    notifyUser(title: "设置失败", message: "无法\(enable ? "启用" : "禁用")随系统启动功能: \(error.localizedDescription)")
+                }
+            }
+        } else {
+            // 使用老版本的 API（已废弃但向后兼容）
+            let success = SMLoginItemSetEnabled(bundleIdentifier as CFString, enable)
+            if success {
+                print(enable ? "已成功将应用设置为随系统启动" : "已成功取消应用随系统启动设置")
+                notifyUser(title: enable ? "设置成功" : "设置已关闭", 
+                           message: enable ? "已将应用设置为随系统启动" : "已取消应用随系统启动设置")
+            } else {
+                print("设置登录项失败")
+                notifyUser(title: "设置失败", message: "无法\(enable ? "启用" : "禁用")随系统启动功能")
+            }
+        }
+    }
+    
+    // 显示用户通知
+    private func notifyUser(title: String, message: String) {
+        DispatchQueue.main.async {
+            let center = NSUserNotificationCenter.default
+            let notification = NSUserNotification()
+            notification.title = title
+            notification.informativeText = message
+            notification.soundName = NSUserNotificationDefaultSoundName
+            center.deliver(notification)
+        }
     }
 } 

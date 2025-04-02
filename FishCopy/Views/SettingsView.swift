@@ -246,7 +246,14 @@ struct SettingsView: View {
     @State internal var selectedTab: SettingsTab = .general
     
     // 通用设置
-    @AppStorage("launchAtStartup") private var launchAtStartup = true
+    @AppStorage("launchAtStartup") private var launchAtStartup = true {
+        didSet {
+            // 当设置变更时，调用切换方法
+            if oldValue != launchAtStartup {
+                clipboardManager.setLaunchAtStartup(launchAtStartup)
+            }
+        }
+    }
     @AppStorage("enableSounds") private var enableSounds = true
     @AppStorage("enableVimNavigation") private var enableVimNavigation = false
     @AppStorage("removeHistoryDays") private var removeHistoryDays = 30

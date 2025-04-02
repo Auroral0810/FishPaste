@@ -8,13 +8,21 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import ServiceManagement
 
 @main
 struct FishCopyApp: App {
     // 状态管理
     @StateObject private var clipboardManager = ClipboardManager()
     // 设置存储
-    @AppStorage("launchAtStartup") private var launchAtStartup = true
+    @AppStorage("launchAtStartup") private var launchAtStartup = true {
+        didSet {
+            // 当设置变更时应用启动项设置
+            if oldValue != launchAtStartup {
+                Self.checkAndApplyStartupSetting(launchAtStartup)
+            }
+        }
+    }
     // 控制主窗口的显示状态
     @State private var showMainWindow = false
     
@@ -33,8 +41,49 @@ struct FishCopyApp: App {
         // 初始化状态栏动画控制器(这样确保它在应用程序生命周期内存在)
         print("FishCopyApp初始化，设置状态栏动画器")
         _ = statusItemAnimator
+        
+        // 在初始化时设置随系统启动
+        Self.checkAndApplyStartupSetting(launchAtStartup)
     }
     
+    // 检查并应用随系统启动设置
+    private static func checkAndApplyStartupSetting(_ enabled: Bool) {
+        if enabled {
+            DispatchQueue.main.async {
+                applyStartupSetting(enabled)
+            }
+        }
+    }
+    
+    // 应用随系统启动设置
+    private static func applyStartupSetting(_ launchAtStartup: Bool) {
+        // 获取应用的 Bundle ID
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            print("无法获取应用 Bundle ID")
+            return
+        }
+        
+        if #available(macOS 13.0, *) {
+            // 使用 macOS 13 及以上版本的新 API
+            do {
+                let service = SMAppService.mainApp
+                if launchAtStartup && service.status != .enabled {
+                    try service.register()
+                    print("应用启动时：已设置为随系统启动")
+                }
+            } catch {
+                print("设置随系统启动失败: \(error.localizedDescription)")
+            }
+        } else {
+            // 使用老版本的 API
+            let success = SMLoginItemSetEnabled(bundleIdentifier as CFString, launchAtStartup)
+            if success {
+                print("应用启动时：已应用随系统启动设置")
+            } else {
+                print("应用启动时：设置随系统启动失败")
+            }
+        }
+    }
     
     // SwiftData模型容器配置
     var sharedModelContainer: ModelContainer = {
