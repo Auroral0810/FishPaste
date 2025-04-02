@@ -34,7 +34,7 @@ class ClipboardManager: ObservableObject {
     // 标记是否为内部复制操作，避免重复播放音效
     private var isInternalCopyOperation = false
     // 内部复制操作的时间戳，用于避免冲突
-    private var lastInternalCopyTime = Date(timeIntervalSince1970: 0)
+    private var lastInternalCopyTime: Date?
     
     // SwiftData模型上下文
     private var modelContext: ModelContext?
@@ -46,6 +46,12 @@ class ClipboardManager: ObservableObject {
     
     // 上次处理剪贴板的时间
     private var lastProcessTime: Date = Date()
+    
+    // 最后处理的内容ID
+    private var lastProcessedContentID: UUID?
+    
+    // 最大历史记录大小
+    private let maxHistorySize: Int = 1000
     
     init() {
         // 从UserDefaults加载保存的监控间隔设置
@@ -80,7 +86,7 @@ class ClipboardManager: ObservableObject {
     // 播放剪贴板变化音效
     private func playClipboardChangedSound() {
         // 如果这是一个内部复制操作或者在内部复制后的短时间内，不播放自动检测音效
-        if isInternalCopyOperation || Date().timeIntervalSince(lastInternalCopyTime) < 1.0 {
+        if isInternalCopyOperation || (lastInternalCopyTime != nil && Date().timeIntervalSince(lastInternalCopyTime!) < 1.0) {
             print("检测到内部复制操作，跳过自动检测音效")
             return
         }
@@ -247,309 +253,334 @@ class ClipboardManager: ObservableObject {
                 return
             }
             
+            // 确保内部复制标志已重置
+            isInternalCopyOperation = false
+            
             // 更新上次处理时间和changeCount
             lastProcessTime = currentTime
             lastChangeCount = changeCount
             
             // 处理剪贴板内容
-            processClipboardContent(pasteboard)
+            processClipboardContent()
         }
     }
     
     // 处理剪贴板内容
-    private func processClipboardContent(_ pasteboard: NSPasteboard) {
-        print("开始处理剪贴板内容")
-        
-        // 检查是否是内部复制操作,如果是内部复制操作则不处理
-        if isInternalCopyOperation || Date().timeIntervalSince(lastInternalCopyTime) < 1.0 {
-            print("检测到内部复制操作，跳过处理")
-            return
-        }
-        
-        // 检查模型上下文是否初始化
-        if modelContext == nil {
-            print("警告: 模型上下文未初始化，尝试延迟处理")
-            // 延迟100ms后重试，希望此时上下文已初始化
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.processClipboardContent(pasteboard)
+    private func processClipboardContent() {
+        // 如果最近执行了内部复制操作，跳过处理以避免重复
+        if isInternalCopyOperation {
+            let now = Date()
+            if let lastTime = lastInternalCopyTime, now.timeIntervalSince(lastTime) < 1.0 {
+                print("检测到内部复制操作，跳过处理")
+                return
             }
+            
+            // 重置内部复制标志
+            isInternalCopyOperation = false
+        }
+        
+        // 强制重置内部复制标志，防止卡在复制状态
+        if let lastTime = lastInternalCopyTime, Date().timeIntervalSince(lastTime) > 5.0 {
+            print("内部复制标志超时，强制重置")
+            isInternalCopyOperation = false
+        }
+        
+        let pasteboard = NSPasteboard.general
+        let newChangeCount = pasteboard.changeCount
+        
+        // 如果变化计数没有改变，说明内容没有变化
+        if newChangeCount == lastChangeCount {
             return
         }
+        
+        // 更新变化计数
+        lastChangeCount = newChangeCount
         
         // 创建新的剪贴板内容对象
-        let content = ClipboardContent(id: UUID())
+        let content = ClipboardContent()
+        
+        // 处理多种类型的内容
         var hasContent = false
         
-        // 安全地检查文本
-        if let text = pasteboard.string(forType: .string) {
-            content.text = text
-            hasContent = true
-            print("已获取文本内容")
-        }
+        // 尝试读取剪贴板中的所有项目
+        var containsImage = false
+        var containsText = false
+        var containsFileURL = false
         
-        // 处理剪贴板中的图片和文件 - 重新实现
-        let pasteboardTypes = pasteboard.types ?? []
-        print("剪贴板包含以下类型: \(pasteboardTypes)")
-        
-        // 首先检查是否有文件URL
-        var multipleFiles: [URL] = []
-        
-        do {
-            let options: [NSPasteboard.ReadingOptionKey: Any] = [
-                .urlReadingContentsConformToTypes: ["public.item"],
-                .urlReadingFileURLsOnly: true
-            ]
+        // 首先检查是否有多个项目
+        let items = pasteboard.pasteboardItems
+        if let items = items, !items.isEmpty {
+            print("剪贴板包含 \(items.count) 个项目")
             
-            if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL], !urls.isEmpty {
-                for url in urls {
-                    if let safeURL = URL(string: url.absoluteString), safeURL.isFileURL {
-                        if FileManager.default.fileExists(atPath: safeURL.path) {
-                            multipleFiles.append(safeURL)
-                            print("添加文件URL: \(safeURL.lastPathComponent)")
-                        }
-                    }
-                }
-            }
-        } catch {
-            print("读取剪贴板URL时出错: \(error.localizedDescription)")
-        }
-        
-        // 如果有文件，处理文件
-        if !multipleFiles.isEmpty {
-            // 检测到多个文件
-            if multipleFiles.count > 1 {
-                print("检测到\(multipleFiles.count)个文件，将分别保存")
-                
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // 触发状态栏图标旋转动画
-                    NotificationCenter.default.post(
-                        name: Notification.Name("ClipboardContentChanged"),
-                        object: nil
-                    )
-                    
-                    // 播放剪贴板变化音效
-                    self.playClipboardChangedSound()
-                    
-                    // 为每个文件创建单独的剪贴板内容
-                    for (index, fileURL) in multipleFiles.enumerated() {
-                        let fileName = fileURL.lastPathComponent
-                        
-                        // 使用专用方法获取文件图标
-                        let fileIcon = self.getFileIconOrPreview(for: fileURL)
-                        
-                        // 创建剪贴板内容
-                        let fileContent = ClipboardContent(
-                            id: UUID(),
-                            text: fileName,
-                            image: fileIcon,
-                            fileURLs: [fileURL],
-                            timestamp: Date().addingTimeInterval(Double(-index) * 0.1)
-                        )
-                        
-                        // 添加到历史记录
-                        if !self.isContentDuplicate(fileContent) {
-                            self.clipboardHistory.insert(fileContent, at: 0)
-                            print("保存文件 '\(fileName)' 为单独剪贴板项，图标类型: \(fileIcon.size)")
-                            
-                            // 保存到数据库
-                            if self.modelContext != nil {
-                                self.saveToDatabase(fileContent)
-                            } else {
-                                print("错误: 无法保存到数据库，模型上下文为nil")
-                            }
-                        }
-                    }
-                    
-                    // 更新当前剪贴板内容为第一个文件
-                    if let firstURL = multipleFiles.first {
-                        self.currentClipboardContent = ClipboardContent(
-                            id: UUID(),
-                            text: firstURL.lastPathComponent,
-                            image: self.getFileIconOrPreview(for: firstURL),
-                            fileURLs: [firstURL]
-                        )
-                    }
-                }
-                
-                return // 已处理完成，直接返回
-            } else if multipleFiles.count == 1 {
-                // 单个文件处理
-                let fileURL = multipleFiles[0]
-                content.text = fileURL.lastPathComponent
-                content.fileURLs = [fileURL]
-                content.image = getFileIconOrPreview(for: fileURL)
-                hasContent = true
-                print("保存单个文件: \(fileURL.lastPathComponent)，使用适当的文件图标")
-                
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // 触发图标旋转动画
-                    NotificationCenter.default.post(
-                        name: Notification.Name("ClipboardContentChanged"),
-                        object: nil
-                    )
-                    
-                    self.currentClipboardContent = content
-                    
-                    // 避免重复添加相同内容
-                    if !self.clipboardHistory.contains(where: { $0.isEqual(to: content) }) {
-                        self.clipboardHistory.insert(content, at: 0)
-                        
-                        // 保存到数据库
-                        if self.modelContext != nil {
-                            self.saveToDatabase(content)
-                        }
-                    }
-                }
-                
-                return // 已处理完成，直接返回
-            }
-        }
-        
-        // 如果没有文件，检查是否有图片
-        var multipleImages: [NSImage] = []
-        
-        // 方法1: 尝试使用readObjects获取所有图片
-        if let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage], !images.isEmpty {
-            print("方法1: 通过readObjects获取到\(images.count)张图片")
-            for (index, image) in images.enumerated() {
-                if let safeImage = createSafeImage(from: image) {
-                    multipleImages.append(safeImage)
-                    print("方法1: 添加第\(index + 1)张图片")
-                }
-            }
-        }
-        
-        // 方法2: 仅在方法1未找到图片时，遍历所有pasteboard项目
-        if multipleImages.isEmpty, let items = pasteboard.pasteboardItems, !items.isEmpty {
-            print("方法2: 发现\(items.count)个剪贴板项目")
+            // 处理每个项目
+            var allImages: [NSImage] = []
+            var allTexts: [String] = []
+            var allFileURLs: [URL] = []
+            
             for (index, item) in items.enumerated() {
-                let itemTypes = item.types
-                print("方法2: 第\(index + 1)个剪贴板项目包含类型: \(itemTypes)")
+                print("处理剪贴板项目 #\(index + 1)，包含类型: \(item.types)")
                 
-                // 尝试所有可能的图片类型
-                let imageTypes: [NSPasteboard.PasteboardType] = [
-                    .tiff, .png, 
-                    NSPasteboard.PasteboardType("public.jpeg"),
-                    NSPasteboard.PasteboardType("com.adobe.pdf"), 
-                    NSPasteboard.PasteboardType("public.image")
-                ]
+                // 处理文本
+                if item.types.contains(.string) {
+                    if let string = item.string(forType: .string), !string.isEmpty {
+                        // 检查是否是已经识别过的文本（避免重复计数）
+                        if !allTexts.contains(string) {
+                            allTexts.append(string)
+                            containsText = true
+                            print("项目 #\(index + 1) 包含文本: \(string.prefix(min(20, string.count)))...")
+                        }
+                    }
+                }
                 
-                for type in imageTypes {
-                    if itemTypes.contains(type), let imgData = item.data(forType: type) {
-                        print("方法2: 从第\(index + 1)个项目获取到\(type)类型数据")
-                        if let image = NSImage(data: imgData), let safeImage = createSafeImage(from: image) {
-                            if !isDuplicateImage(safeImage, in: multipleImages) {
-                                multipleImages.append(safeImage)
-                                print("方法2: 添加来自第\(index + 1)个项目的\(type)类型图片")
+                // 处理图片（TIFF或PNG格式）
+                let imageTypeIdentifiers: [NSPasteboard.PasteboardType] = [.tiff, .png]
+                var foundImage = false
+                
+                for imageType in imageTypeIdentifiers {
+                    if item.types.contains(imageType), !foundImage {
+                        if let imageData = item.data(forType: imageType),
+                           let image = NSImage(data: imageData) {
+                            // 检查是否和已经识别的图片重复
+                            if !isDuplicateImage(image, in: allImages) {
+                                allImages.append(image)
+                                containsImage = true
+                                foundImage = true
+                                print("项目 #\(index + 1) 包含图片，大小: \(image.size.width)x\(image.size.height)")
                             }
                         }
+                    }
+                }
+                
+                // 处理自定义图片类型
+                for type in item.types {
+                    if type.rawValue.hasPrefix("com.fishcopy.image."), !foundImage {
+                        if let imageData = item.data(forType: type),
+                           let image = NSImage(data: imageData) {
+                            // 检查是否和已经识别的图片重复
+                            if !isDuplicateImage(image, in: allImages) {
+                                allImages.append(image)
+                                containsImage = true
+                                foundImage = true
+                                print("项目 #\(index + 1) 包含自定义图片类型: \(type.rawValue)")
+                            }
+                        }
+                    }
+                }
+                
+                // 处理PDF格式数据
+                if item.types.contains(.pdf) && !foundImage {
+                    if let pdfData = item.data(forType: .pdf),
+                       let pdfImage = createImageFromPDF(pdfData) {
+                        allImages.append(pdfImage)
+                        containsImage = true
+                        foundImage = true
+                        print("项目 #\(index + 1) 包含PDF数据，转换为图片")
+                    }
+                }
+                
+                // 处理RTF格式数据，提取纯文本
+                if item.types.contains(.rtf) && !containsText {
+                    if let rtfData = item.data(forType: .rtf),
+                       let rtfString = createStringFromRTF(rtfData),
+                       !rtfString.isEmpty,
+                       !allTexts.contains(rtfString) {
+                        allTexts.append(rtfString)
+                        containsText = true
+                        print("项目 #\(index + 1) 包含RTF数据，提取纯文本")
+                    }
+                }
+                
+                // 处理文件URL
+                if item.types.contains(.fileURL) {
+                    if let urlString = item.string(forType: .fileURL),
+                       let url = URL(string: urlString),
+                       url.isFileURL {
+                        allFileURLs.append(url)
+                        containsFileURL = true
+                        print("项目 #\(index + 1) 包含文件URL: \(url.path)")
                     }
                 }
             }
-        }
-        
-        // 处理检测到的图片
-        if !multipleImages.isEmpty {
-            // 如果有多张图片，将它们作为单独的剪贴板内容保存
-            if multipleImages.count > 1 {
-                print("检测到\(multipleImages.count)张图片，将分别保存")
-                
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // 触发状态栏图标旋转动画
-                    NotificationCenter.default.post(
-                        name: Notification.Name("ClipboardContentChanged"),
-                        object: nil
-                    )
-                    
-                    // 播放剪贴板变化音效
-                    self.playClipboardChangedSound()
-                    
-                    // 为每张图片创建单独的剪贴板内容
-                    for (index, img) in multipleImages.enumerated() {
-                        // 创建图片名称
-                        let imageName = "图片_\(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium).replacingOccurrences(of: ":", with: "-"))_\(index+1)"
-                        
-                        let singleImageContent = ClipboardContent(
-                            id: UUID(),
-                            text: imageName,
-                            image: img,
-                            timestamp: Date().addingTimeInterval(Double(-index) * 0.1)
-                        )
-                        
-                        // 添加到历史记录
-                        if !self.isContentDuplicate(singleImageContent) {
-                            self.clipboardHistory.insert(singleImageContent, at: 0)
-                            
-                            // 保存到数据库
-                            if self.modelContext != nil {
-                                self.saveToDatabase(singleImageContent)
-                            }
-                        }
-                    }
-                    
-                    // 更新当前剪贴板内容为第一张图片
-                    let imageName = "图片_\(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium).replacingOccurrences(of: ":", with: "-"))_1"
-                    self.currentClipboardContent = ClipboardContent(
-                        id: UUID(),
-                        text: imageName,
-                        image: multipleImages.first
-                    )
-                }
-                
-                return
-            } else {
-                // 单张图片处理
-                let imageName = "图片_\(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium).replacingOccurrences(of: ":", with: "-"))"
-                content.text = imageName
-                content.image = multipleImages[0]
+            
+            // 设置收集到的所有内容
+            if !allTexts.isEmpty {
+                content.text = allTexts.joined(separator: "\n")
                 hasContent = true
-                print("最终: 保存一张图片到内容中: \(imageName)")
+                print("收集到 \(allTexts.count) 个文本")
             }
-        }
-        
-        // 如果有内容，则更新当前剪贴板内容并添加到历史记录
-        if hasContent {
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                
-                // 触发状态栏图标旋转动画
-                NotificationCenter.default.post(
-                    name: Notification.Name("ClipboardContentChanged"),
-                    object: nil
-                )
-                
-                self.currentClipboardContent = content
-                
-                // 安全地处理，避免拖拽时的重复处理
-                if (content.text?.isEmpty == false) || content.image != nil || (content.images != nil && !content.images!.isEmpty) {
-                    // 更新剪贴板历史记录
-                    // 避免重复添加相同内容
-                    if !self.isContentDuplicate(content) {
-                        self.clipboardHistory.insert(content, at: 0)
-                        
-                        // 保存到数据库
-                        if self.modelContext != nil {
-                            self.saveToDatabase(content)
-                        }
-                        
-                        // 播放剪贴板变化音效
-                        self.playClipboardChangedSound()
-                    } else {
-                        print("跳过重复内容")
-                    }
+            
+            if !allImages.isEmpty {
+                if allImages.count == 1 {
+                    content.image = allImages[0]
                 } else {
-                    print("内容无效，跳过处理")
+                    content.images = allImages
                 }
+                hasContent = true
+                print("收集到 \(allImages.count) 张图片")
+            }
+            
+            if !allFileURLs.isEmpty {
+                content.fileURLs = allFileURLs
+                hasContent = true
+                print("收集到 \(allFileURLs.count) 个文件URL")
             }
         } else {
-            print("剪贴板中没有检测到有效内容")
+            // 单项处理（兼容性模式）
+            print("使用兼容性模式处理单项内容")
+            
+            // 首先尝试获取文件URL
+            if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !fileURLs.isEmpty {
+                print("读取到 \(fileURLs.count) 个文件URL")
+                
+                content.fileURLs = fileURLs
+                hasContent = true
+                containsFileURL = true
+            }
+            
+            // 然后尝试获取图片
+            if let images = pasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage], !images.isEmpty {
+                print("读取到 \(images.count) 张图片")
+                
+                if images.count == 1 {
+                    content.image = images[0]
+                } else {
+                    content.images = images
+                }
+                hasContent = true
+                containsImage = true
+            }
+            
+            // 最后尝试获取文本
+            if let text = pasteboard.string(forType: .string), !text.isEmpty {
+                print("读取到文本内容")
+                
+                content.text = text
+                hasContent = true
+                containsText = true
+            }
+            
+            // 尝试读取PDF数据
+            if let pdfData = pasteboard.data(forType: .pdf),
+               let pdfImage = createImageFromPDF(pdfData) {
+                if content.image == nil {
+                    content.image = pdfImage
+                } else if content.images == nil {
+                    content.images = [pdfImage]
+                } else {
+                    content.images?.append(pdfImage)
+                }
+                hasContent = true
+                containsImage = true
+                print("读取到PDF数据并转换为图片")
+            }
+            
+            // 尝试读取RTF数据
+            if let rtfData = pasteboard.data(forType: .rtf),
+               let rtfString = createStringFromRTF(rtfData),
+               !rtfString.isEmpty {
+                if content.text == nil {
+                    content.text = rtfString
+                } else {
+                    content.text = content.text! + "\n" + rtfString
+                }
+                hasContent = true
+                containsText = true
+                print("读取到RTF数据并提取文本")
+            }
         }
+        
+        // 为内容分配唯一标识符和时间戳
+        content.id = UUID()
+        content.timestamp = Date()
+        
+        // 添加内容到历史记录（如果有内容且不是重复的）
+        if hasContent && !isContentDuplicate(content) {
+            print("添加新剪贴板内容到历史记录")
+            
+            // 设置内容类别
+            determineContentCategory(for: content)
+            
+            // 添加到剪贴板历史的前面
+            clipboardHistory.insert(content, at: 0)
+            
+            // 将新内容保存到数据库
+            saveContentToDatabase(content)
+            
+            // 限制历史记录大小
+            if clipboardHistory.count > maxHistorySize {
+                // 移除非钉选的最旧项目
+                let nonPinnedItems = clipboardHistory.filter { !$0.isPinned }
+                if let oldestNonPinned = nonPinnedItems.last {
+                    if let index = clipboardHistory.firstIndex(where: { $0.id == oldestNonPinned.id }) {
+                        // 从内存中移除
+                        let removedItem = clipboardHistory.remove(at: index)
+                        
+                        // 从数据库中删除
+                        deleteItemFromDatabase(with: removedItem.id)
+                    }
+                }
+            }
+            
+            // 播放新项目添加音效（除非是手动复制的，那会有单独的音效）
+            if !isInternalCopyOperation {
+                playClipboardChangedSound()
+            }
+            
+            // 更新最后处理的内容ID
+            lastProcessedContentID = content.id
+        } else if hasContent {
+            print("未添加内容到历史记录: 检测到重复内容")
+        } else {
+            print("未添加内容到历史记录: 未检测到有效内容")
+        }
+        
+        // 如果检测到新内容，发送通知以便UI刷新
+        if hasContent {
+            NotificationCenter.default.post(
+                name: Notification.Name("ClipboardContentChanged"),
+                object: nil
+            )
+        }
+    }
+    
+    // 辅助方法：从PDF数据创建图像
+    private func createImageFromPDF(_ pdfData: Data) -> NSImage? {
+        guard let dataProvider = CGDataProvider(data: pdfData as CFData),
+              let pdfDocument = CGPDFDocument(dataProvider) else {
+            return nil
+        }
+        
+        guard let page = pdfDocument.page(at: 1) else {
+            return nil
+        }
+        
+        let pageRect = page.getBoxRect(.mediaBox)
+        let renderer = NSImage(size: pageRect.size)
+        
+        renderer.lockFocus()
+        let context = NSGraphicsContext.current?.cgContext
+        
+        // 白底黑字
+        context?.setFillColor(CGColor.white)
+        context?.fill(pageRect)
+        
+        // 翻转坐标系以正确绘制PDF
+        context?.translateBy(x: 0, y: pageRect.size.height)
+        context?.scaleBy(x: 1.0, y: -1.0)
+        
+        // 渲染PDF页面
+        context?.drawPDFPage(page)
+        renderer.unlockFocus()
+        
+        return renderer
+    }
+    
+    // 辅助方法：从RTF数据创建字符串
+    private func createStringFromRTF(_ rtfData: Data) -> String? {
+        guard let attributedString = NSAttributedString(rtf: rtfData, documentAttributes: nil) else {
+            return nil
+        }
+        return attributedString.string
     }
     
     // 辅助方法: 创建安全图像拷贝
@@ -605,11 +636,35 @@ class ClipboardManager: ObservableObject {
             return isDuplicateImage(image1, image2)
         }
         
+        // 如果一个有单张图片，一个有多张图片
+        if let image1 = content1.image, let images2 = content2.images, !images2.isEmpty {
+            // 检查单张图片是否与多张图片中的任何一张匹配
+            return isDuplicateImage(image1, in: images2)
+        }
+        
+        if let images1 = content1.images, !images1.isEmpty, let image2 = content2.image {
+            // 检查单张图片是否与多张图片中的任何一张匹配
+            return isDuplicateImage(image2, in: images1)
+        }
+        
         // 如果两者都有多张图片
         if let images1 = content1.images, let images2 = content2.images,
            !images1.isEmpty, !images2.isEmpty {
-            // 只比较第一张图片，简化复杂度
-            return isDuplicateImage(images1[0], images2[0])
+            // 如果图片数量相同且不多，比较每一张图片
+            if images1.count == images2.count && images1.count <= 5 {
+                // 对于少量图片，比较每一张
+                var matchCount = 0
+                for i in 0..<images1.count {
+                    if isDuplicateImage(images1[i], images2[i]) {
+                        matchCount += 1
+                    }
+                }
+                // 如果所有图片都匹配，认为是相同的内容
+                return matchCount == images1.count
+            } else {
+                // 对于大量图片，只比较第一张和数量
+                return images1.count == images2.count && isDuplicateImage(images1[0], images2[0])
+            }
         }
         
         return false
@@ -792,6 +847,11 @@ class ClipboardManager: ObservableObject {
         }
     }
     
+    // 保存内容到数据库的包装方法
+    private func saveContentToDatabase(_ content: ClipboardContent) {
+        saveToDatabase(content)
+    }
+    
     // 从剪贴板历史中复制项目到当前剪贴板
     func copyToClipboard(_ content: ClipboardContent) {
         // 标记为内部复制操作，避免重复播放音效
@@ -799,6 +859,9 @@ class ClipboardManager: ObservableObject {
         lastInternalCopyTime = Date()
         
         let pasteboard = NSPasteboard.general
+        // 记录当前剪贴板状态
+        let oldChangeCount = pasteboard.changeCount
+        
         pasteboard.clearContents()
         
         var success = false
@@ -825,22 +888,6 @@ class ClipboardManager: ObservableObject {
                         print("警告: 无法复制多张图片到剪贴板")
                     } else {
                         print("成功复制多张图片到剪贴板")
-                        
-                        // 触发状态栏图标旋转动画
-                        NotificationCenter.default.post(
-                            name: Notification.Name("ClipboardContentChanged"),
-                            object: nil
-                        )
-                        
-                        // 播放手动复制音效
-                        playManualCopySound()
-                        
-                        // 延迟重置内部复制标志，避免过早检测到变化
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                            self?.isInternalCopyOperation = false
-                        }
-                        
-                        return // 成功复制多张图片后直接返回
                     }
                 }
             } catch {
@@ -909,9 +956,27 @@ class ClipboardManager: ObservableObject {
         // 播放手动复制音效
         playManualCopySound()
         
-        // 延迟重置内部复制标志，避免过早检测到变化
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.isInternalCopyOperation = false
+        // 检查剪贴板是否真的变化了
+        let newChangeCount = pasteboard.changeCount
+        if newChangeCount != oldChangeCount {
+            print("剪贴板变化计数: \(oldChangeCount) -> \(newChangeCount), 确保记录新内容")
+            
+            // 手动处理当前剪贴板内容
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self = self else { return }
+                
+                // 重置内部复制标志
+                self.isInternalCopyOperation = false
+                
+                // 强制处理当前剪贴板内容
+                self.lastChangeCount = newChangeCount - 1 // 确保被识别为变化
+                self.processClipboardContent()
+            }
+        } else {
+            // 如果剪贴板没有变化，延迟重置内部复制标志
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.isInternalCopyOperation = false
+            }
         }
     }
     
@@ -1098,42 +1163,178 @@ class ClipboardManager: ObservableObject {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         
-        var success = false
+        // 收集所有内容
+        var allTexts: [String] = []
+        var allImages: [NSImage] = []
+        var allFileURLs: [URL] = []
         
-        // 收集所有文本内容
-        let texts = items.compactMap { $0.text }.joined(separator: "\n")
-        if !texts.isEmpty {
-            success = pasteboard.setString(texts, forType: .string)
-            print("已复制\(items.count)个文本到剪贴板")
-        }
-        
-        // 收集所有图片
-        let images = items.compactMap { $0.image }
-        if !images.isEmpty {
-            // 创建安全拷贝
-            let safeImages = images.compactMap { image -> NSImage? in
-                if let tiffData = image.tiffRepresentation,
-                   let bitmap = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmap.representation(using: .png, properties: [:]),
-                   let safeImage = NSImage(data: pngData) {
-                    return safeImage
-                }
-                return nil
+        // 从所有项目中收集内容
+        for item in items {
+            // 收集文本
+            if let text = item.text, !text.isEmpty {
+                allTexts.append(text)
             }
             
-            if !safeImages.isEmpty {
-                success = pasteboard.writeObjects(safeImages)
-                print("已复制\(safeImages.count)个图片到剪贴板")
+            // 收集单图像
+            if let image = item.image {
+                allImages.append(image)
+            }
+            
+            // 收集多图像
+            if let images = item.images, !images.isEmpty {
+                allImages.append(contentsOf: images)
+            }
+            
+            // 收集文件URL
+            if let fileURLs = item.fileURLs, !fileURLs.isEmpty {
+                allFileURLs.append(contentsOf: fileURLs)
             }
         }
         
-        // 收集所有文件URL
-        let allURLs = items.compactMap { $0.fileURLs }.flatMap { $0 }
-        let validURLs = allURLs.filter { url in url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
+        // 创建安全图片拷贝
+        let safeImages = allImages.compactMap { image -> NSImage? in
+            if let tiffData = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]),
+               let safeImage = NSImage(data: pngData) {
+                return safeImage
+            }
+            return nil
+        }
         
+        // 过滤有效的URL
+        let validURLs = allFileURLs.filter { url in url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
+        
+        // 合并文本内容
+        let combinedText = allTexts.joined(separator: "\n")
+        
+        print("准备写入剪贴板: \(allTexts.count)个文本, \(safeImages.count)个图片, \(validURLs.count)个文件URL")
+        
+        // 创建写入对象数组
+        var writeObjects: [NSPasteboardWriting] = []
+        
+        // 如果有文本，添加到写入对象
+        if !combinedText.isEmpty {
+            writeObjects.append(combinedText as NSString)
+        }
+        
+        // 如果有图片，添加到写入对象
+        writeObjects.append(contentsOf: safeImages)
+        
+        // 如果有URL，添加到写入对象
         if !validURLs.isEmpty {
-            success = pasteboard.writeObjects(validURLs as [NSURL])
-            print("已复制\(validURLs.count)个文件到剪贴板")
+            writeObjects.append(contentsOf: validURLs as [NSURL])
+        }
+        
+        // 一次性写入所有对象
+        var writeSuccess = false
+        if !writeObjects.isEmpty {
+            writeSuccess = pasteboard.writeObjects(writeObjects)
+            print("一次性写入对象\(writeSuccess ? "成功" : "失败")")
+        }
+        
+        // 如果一次性写入失败，尝试使用NSPasteboardItem方式
+        if !writeSuccess && (!combinedText.isEmpty || !safeImages.isEmpty) {
+            print("尝试使用NSPasteboardItem方式")
+            
+            pasteboard.clearContents()
+            let item = NSPasteboardItem()
+            
+            // 添加文本
+            if !combinedText.isEmpty {
+                item.setString(combinedText, forType: .string)
+            }
+            
+            // 添加图片
+            if !safeImages.isEmpty, let firstImage = safeImages.first,
+               let tiffData = firstImage.tiffRepresentation {
+                item.setData(tiffData, forType: .tiff)
+                
+                // 为多张图片添加自定义类型
+                if safeImages.count > 1 {
+                    for (index, image) in safeImages.enumerated().dropFirst() {
+                        if let tiffData = image.tiffRepresentation {
+                            let customType = NSPasteboard.PasteboardType("com.fishcopy.image.\(index)")
+                            item.setData(tiffData, forType: customType)
+                        }
+                    }
+                }
+            }
+            
+            writeSuccess = pasteboard.writeObjects([item])
+            print("NSPasteboardItem方式写入\(writeSuccess ? "成功" : "失败")")
+        }
+        
+        // 如果前两种方法都失败，尝试分别写入
+        if !writeSuccess {
+            print("尝试分别写入")
+            
+            pasteboard.clearContents()
+            
+            // 先写入文本
+            if !combinedText.isEmpty {
+                let textSuccess = pasteboard.setString(combinedText, forType: .string)
+                print("写入文本\(textSuccess ? "成功" : "失败")")
+                writeSuccess = textSuccess
+            }
+            
+            // 再添加所有图片（不清空剪贴板）
+            if !safeImages.isEmpty {
+                let imageData = NSMutableData()
+                var lastSuccess = false
+                
+                for image in safeImages {
+                    if let representation = image.tiffRepresentation {
+                        let success = pasteboard.setData(representation, forType: .tiff)
+                        lastSuccess = success || lastSuccess
+                    }
+                }
+                
+                if !lastSuccess {
+                    // 如果逐个添加失败，尝试一次性添加所有
+                    let imagesSuccess = pasteboard.writeObjects(safeImages)
+                    print("写入\(safeImages.count)张图片\(imagesSuccess ? "成功" : "失败")")
+                    writeSuccess = writeSuccess || imagesSuccess
+                } else {
+                    print("逐个写入图片成功")
+                    writeSuccess = true
+                }
+            }
+            
+            // 最后添加文件URL（如果前面都失败）
+            if !writeSuccess && !validURLs.isEmpty {
+                let urlSuccess = pasteboard.writeObjects(validURLs as [NSURL])
+                print("写入\(validURLs.count)个文件URL\(urlSuccess ? "成功" : "失败")")
+                writeSuccess = urlSuccess
+            }
+        }
+        
+        // 最后的备份方法：如果还是失败，创建RTF格式组合文本和图片
+        if !writeSuccess && !combinedText.isEmpty && !safeImages.isEmpty {
+            print("尝试使用RTF格式组合文本和图片")
+            
+            pasteboard.clearContents()
+            
+            // 创建富文本
+            let attributedString = NSMutableAttributedString(string: combinedText)
+            
+            // 为富文本添加图片附件
+            for (index, image) in safeImages.enumerated() {
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                let attachmentString = NSAttributedString(attachment: attachment)
+                
+                // 在文本末尾添加换行符和图片
+                attributedString.append(NSAttributedString(string: "\n"))
+                attributedString.append(attachmentString)
+            }
+            
+            // 获取RTF数据
+            if let rtfData = attributedString.rtf(from: NSRange(location: 0, length: attributedString.length)) {
+                let rtfSuccess = pasteboard.setData(rtfData, forType: .rtf)
+                print("写入RTF数据\(rtfSuccess ? "成功" : "失败")")
+                writeSuccess = rtfSuccess
+            }
         }
         
         // 触发状态栏图标旋转动画
@@ -1149,6 +1350,9 @@ class ClipboardManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.isInternalCopyOperation = false
         }
+        
+        // 输出总结信息
+        print("已复制内容: \(allTexts.count)个文本, \(safeImages.count)个图片, \(validURLs.count)个文件URL")
     }
     
     // 创建单个项目的NSItemProvider
@@ -1223,17 +1427,85 @@ class ClipboardManager: ObservableObject {
             }
         }
         
-        // 处理图片 - 只使用第一张图片
-        if let firstImage = items.compactMap({ $0.image }).first {
-            // 直接注册NSImage对象
-            provider.registerObject(firstImage, visibility: .all)
+        // 收集所有图片
+        var allImages: [NSImage] = []
+        
+        // 同时处理单图像和多图像集合
+        for item in items {
+            if let image = item.image {
+                allImages.append(image)
+            }
+            if let images = item.images, !images.isEmpty {
+                allImages.append(contentsOf: images)
+            }
+        }
+        
+        // 处理图片 - 尝试注册所有图片
+        if !allImages.isEmpty {
+            // 创建图片的安全拷贝
+            let safeImages = allImages.compactMap { image -> NSImage? in
+                if let tiffData = image.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]),
+                   let safeImage = NSImage(data: pngData) {
+                    return safeImage
+                }
+                return nil
+            }
             
-            // 同时注册为二进制数据
-            if let tiffData = firstImage.tiffRepresentation {
-                provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
-                                                  visibility: .all) { completion in
-                    completion(tiffData, nil)
-                    return nil
+            // 注册所有图片
+            if !safeImages.isEmpty {
+                // 注册第一张图片作为主要图片内容
+                provider.registerObject(safeImages[0], visibility: .all)
+                
+                // 为拖拽操作注册所有图片
+                if safeImages.count > 1 {
+                    // 以写入对象方式注册所有图片
+                    if let writableArray = NSArray(array: safeImages) as? NSItemProviderWriting {
+                        provider.registerObject(writableArray, visibility: .all)
+                    } else {
+                        // 如果无法转换，逐个注册
+                        for (index, image) in safeImages.enumerated() {
+                            provider.registerObject(image, visibility: .all)
+                        }
+                    }
+                    
+                    // 注册图片数据表示
+                    provider.registerDataRepresentation(forTypeIdentifier: kUTTypeImage as String,
+                                                    visibility: .all) { completion in
+                        // 创建一个TIFF图像集合
+                        var imageReps: [NSBitmapImageRep] = []
+                        for image in safeImages {
+                            if let tiffData = image.tiffRepresentation,
+                               let rep = NSBitmapImageRep(data: tiffData) {
+                                imageReps.append(rep)
+                            }
+                        }
+                        
+                        if !imageReps.isEmpty {
+                            // 尝试创建多页TIFF
+                            if let multiImageData = NSBitmapImageRep.representationOfImageReps(in: imageReps, using: .tiff, properties: [:]) {
+                                completion(multiImageData, nil)
+                                return nil
+                            }
+                        }
+                        
+                        // 如果多页TIFF失败，返回第一张图片的数据
+                        if let firstImage = safeImages.first,
+                           let tiffData = firstImage.tiffRepresentation {
+                            completion(tiffData, nil)
+                        } else {
+                            completion(nil, NSError(domain: "FishCopy", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法创建图片数据"]))
+                        }
+                        return nil
+                    }
+                } else if let firstImage = safeImages.first, let tiffData = firstImage.tiffRepresentation {
+                    // 单个图片的情况
+                    provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
+                                                    visibility: .all) { completion in
+                        completion(tiffData, nil)
+                        return nil
+                    }
                 }
             }
         }
@@ -1241,20 +1513,29 @@ class ClipboardManager: ObservableObject {
         // 处理文件 - 查找所有选中项目中的文件
         let allFileURLs = items.compactMap { $0.fileURLs }.flatMap { $0 }
         if !allFileURLs.isEmpty {
-            // 逐个注册有效的URL
-            for url in allFileURLs {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    provider.registerObject(url as NSURL as NSItemProviderWriting, visibility: .all)
-                }
-            }
+            // 过滤出有效的URL
+            let validURLs = allFileURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
             
-            // 单个文件处理 - 使用专用Provider
-            if let firstURL = allFileURLs.first,
-               FileManager.default.fileExists(atPath: firstURL.path) {
-                // 创建基于URL内容的provider
-                let contentProvider = NSItemProvider(contentsOf: firstURL)
-                if let contentProvider = contentProvider {
-                    return contentProvider
+            if !validURLs.isEmpty {
+                // 创建URL数组并注册
+                if let fileURLArray = NSArray(array: validURLs) as? NSItemProviderWriting {
+                    provider.registerObject(fileURLArray, visibility: .all)
+                } else {
+                    // 如果无法转换，逐个注册
+                    for url in validURLs {
+                        provider.registerObject(url as NSURL as NSItemProviderWriting, visibility: .all)
+                    }
+                }
+                
+                // 注册每个文件的内容表示
+                for url in validURLs {
+                    // 注册文件内容表示
+                    provider.registerFileRepresentation(forTypeIdentifier: kUTTypeFileURL as String,
+                                                    fileOptions: [],
+                                                    visibility: .all) { completion in
+                        completion(url, true, nil)
+                        return nil
+                    }
                 }
             }
         }
@@ -1480,7 +1761,10 @@ class ClipboardManager: ObservableObject {
     
     // 在clipboardHistory插入内容前和内部复制时检查是否重复
     private func isContentDuplicate(_ newContent: ClipboardContent) -> Bool {
-        for existingContent in clipboardHistory {
+        // 检查最近处理的内容(限制检查范围，提高性能)
+        let recentItems = clipboardHistory.prefix(20)
+        
+        for existingContent in recentItems {
             // 如果ID相同，认为是同一个内容
             if newContent.id == existingContent.id {
                 return true
@@ -1488,8 +1772,21 @@ class ClipboardManager: ObservableObject {
             
             // 对于文本内容进行比较
             if let newText = newContent.text, let existingText = existingContent.text {
+                // 完全相同的文本认为是重复的
                 if newText == existingText {
+                    print("检测到重复文本")
                     return true
+                }
+                
+                // 对于非常短的文本(如URL)，需要更严格的比较
+                if newText.count < 100 && existingText.count < 100 {
+                    // 移除空白字符后再比较
+                    let trimmedNew = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedExisting = existingText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmedNew == trimmedExisting {
+                        print("检测到修剪后重复的短文本")
+                        return true
+                    }
                 }
             }
             
@@ -1497,6 +1794,7 @@ class ClipboardManager: ObservableObject {
             if (newContent.image != nil && existingContent.image != nil) ||
                (newContent.images != nil && existingContent.images != nil) {
                 if hasSameImage(newContent, existingContent) {
+                    print("检测到重复图片")
                     return true
                 }
             }
@@ -1508,11 +1806,56 @@ class ClipboardManager: ObservableObject {
                 let newURLSet = Set(newURLs.map { $0.absoluteString })
                 let existingURLSet = Set(existingURLs.map { $0.absoluteString })
                 if newURLSet == existingURLSet {
+                    print("检测到重复文件URL")
                     return true
                 }
             }
         }
         
         return false
+    }
+    
+    // 为内容确定适当的分类
+    private func determineContentCategory(for content: ClipboardContent) {
+        // 根据内容类型设置默认分类
+        if content.image != nil || (content.images != nil && !content.images!.isEmpty) {
+            content.category = "图像"
+        } else if let text = content.text {
+            if text.hasPrefix("http://") || text.hasPrefix("https://") {
+                content.category = "链接"
+            } else {
+                content.category = "文本"
+            }
+        } else if content.fileURLs != nil && !content.fileURLs!.isEmpty {
+            content.category = "文件"
+        }
+    }
+    
+    // 从数据库删除指定ID的项目
+    private func deleteItemFromDatabase(with id: UUID) {
+        guard let modelContext = modelContext else {
+            print("警告: 无法从数据库删除项目，模型上下文未初始化")
+            return
+        }
+        
+        do {
+            // 创建查询
+            let predicate = #Predicate<ClipboardItem> { item in
+                item.id == id
+            }
+            let descriptor = FetchDescriptor<ClipboardItem>(predicate: predicate)
+            
+            // 查找项目
+            if let item = try modelContext.fetch(descriptor).first {
+                // 删除项目
+                modelContext.delete(item)
+                try modelContext.save()
+                print("成功从数据库中删除ID为\(id)的项目")
+            } else {
+                print("在数据库中找不到ID为\(id)的项目")
+            }
+        } catch {
+            print("从数据库删除项目时出错: \(error.localizedDescription)")
+        }
     }
 } 
