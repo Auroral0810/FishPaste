@@ -32,7 +32,16 @@ class ClipboardManager: ObservableObject {
     // 当前剪贴板数据的校验和，用于检测变化
     private var lastChangeCount: Int = 0
     
+    // 上次处理剪贴板的时间
+    private var lastProcessTime: Date = Date()
+    
     init() {
+        // 从UserDefaults加载保存的监控间隔设置
+        if let savedInterval = UserDefaults.standard.object(forKey: "monitoringInterval") as? Double {
+            self.monitoringInterval = savedInterval
+            print("从UserDefaults加载监控间隔设置: \(savedInterval)秒")
+        }
+        
         // 启动剪贴板监控
         startMonitoring()
         
@@ -118,10 +127,18 @@ class ClipboardManager: ObservableObject {
     
     // 设置监控间隔
     func setMonitoringInterval(_ interval: Double) {
+        print("更新监控间隔: \(monitoringInterval) -> \(interval)秒")
         monitoringInterval = interval
+        
+        // 重置上次处理时间，使间隔更改立即生效
+        lastProcessTime = Date().addingTimeInterval(-interval)
+        
         if isMonitoring {
             startMonitoring() // 重启定时器以应用新间隔
         }
+        
+        // 保存设置到UserDefaults
+        UserDefaults.standard.set(interval, forKey: "monitoringInterval")
     }
     
     // 打开设置
@@ -155,10 +172,26 @@ class ClipboardManager: ObservableObject {
     private func checkClipboard() {
         let pasteboard = NSPasteboard.general
         let changeCount = pasteboard.changeCount
+        let currentTime = Date()
         
         // 只有当剪贴板变化时才处理
         if changeCount != lastChangeCount {
+            // 检查距离上次处理的时间间隔是否超过设定的监控间隔
+            let elapsedTime = currentTime.timeIntervalSince(lastProcessTime)
+            
+            // 如果间隔不足，则不处理此次变化
+            if elapsedTime < monitoringInterval {
+                print("监测到变化但间隔小于\(monitoringInterval)秒 (实际\(elapsedTime)秒)，忽略此次变化")
+                // 仅更新changeCount，但不处理内容
+                lastChangeCount = changeCount
+                return
+            }
+            
+            // 更新上次处理时间和changeCount
+            lastProcessTime = currentTime
             lastChangeCount = changeCount
+            
+            // 处理剪贴板内容
             processClipboardContent(pasteboard)
         }
     }

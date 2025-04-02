@@ -768,13 +768,16 @@ struct StatusBarMenuView: View {
             item.target = clipboardManager
             item.representedObject = interval
             item.action = #selector(ClipboardManager.updateInterval(_:))
-            if abs(interval - clipboardManager.monitoringInterval) < 0.1 {
+            
+            // 检查当前的监控间隔，设置勾选状态
+            if abs(interval - clipboardManager.monitoringInterval) < 0.01 {
                 item.state = .on
             }
+            
             intervalSubmenu.addItem(item)
         }
         
-        let intervalItem = NSMenuItem(title: "剪贴板监视间隔", action: nil, keyEquivalent: "")
+        let intervalItem = NSMenuItem(title: "剪贴板监控间隔", action: nil, keyEquivalent: "")
         intervalItem.submenu = intervalSubmenu
         menu.addItem(intervalItem)
         
