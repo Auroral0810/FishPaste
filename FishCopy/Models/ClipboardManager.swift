@@ -982,21 +982,31 @@ class ClipboardManager: ObservableObject {
         )
     }
     
-    // 创建单个项目的NSItemProvider - 从StatusBarMenuView移动到ClipboardManager
+    // 创建单个项目的NSItemProvider
     func createItemProvider(from item: ClipboardContent) -> NSItemProvider {
         let provider = NSItemProvider()
         
-        // 处理文本内容
+        // 处理文本内容 - 增强文本兼容性
         if let text = item.text {
-            provider.registerDataRepresentation(forTypeIdentifier: kUTTypePlainText as String, 
-                                              visibility: .all) { completion in
-                completion(text.data(using: .utf8), nil)
-                return nil
+            // 以标准字符串类型注册
+            provider.registerObject(text as NSString as NSItemProviderWriting, visibility: .all)
+            
+            // 注册为明确的文本类型 - 增加多种UTType支持
+            ["public.text", "public.plain-text", kUTTypePlainText as String].forEach { typeID in
+                provider.registerDataRepresentation(forTypeIdentifier: typeID,
+                                                  visibility: .all) { completion in
+                    completion(text.data(using: .utf8), nil)
+                    return nil
+                }
             }
         }
         
         // 处理图片内容
         if let image = item.image, let tiffData = image.tiffRepresentation {
+            // 直接注册NSImage对象
+            provider.registerObject(image, visibility: .all)
+            
+            // 同时注册为二进制数据
             provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
                                               visibility: .all) { completion in
                 completion(tiffData, nil)
@@ -1006,13 +1016,14 @@ class ClipboardManager: ObservableObject {
         
         // 处理文件内容 - 直接拖放文件而不是路径
         if let urls = item.fileURLs, !urls.isEmpty {
-            // 遍历所有文件URL并添加它们
+            // 注册每个单独的URL
             for url in urls {
                 if FileManager.default.fileExists(atPath: url.path) {
-                    // 对于每个存在的文件，创建一个内容类型的provider
-                    let contentProvider = NSItemProvider(contentsOf: url)
+                    // 对于每个存在的文件，尝试直接注册URL
+                    provider.registerObject(url as NSURL as NSItemProviderWriting, visibility: .all)
                     
-                    // 如果创建成功，就使用这个provider代替原来的
+                    // 或者创建基于URL内容的provider
+                    let contentProvider = NSItemProvider(contentsOf: url)
                     if let contentProvider = contentProvider {
                         return contentProvider
                     }
@@ -1023,38 +1034,59 @@ class ClipboardManager: ObservableObject {
         return provider
     }
     
-    // 创建多个项目的NSItemProvider - 从StatusBarMenuView移动到ClipboardManager
+    // 创建多个项目的NSItemProvider
     func createMultiItemsProvider(from items: [ClipboardContent]) -> NSItemProvider {
         let provider = NSItemProvider()
         
-        // 收集所有文本内容
+        // 收集所有文本内容 - 改进文本拖拽
         let texts = items.compactMap { $0.text }.joined(separator: "\n")
         if !texts.isEmpty {
-            provider.registerDataRepresentation(forTypeIdentifier: kUTTypePlainText as String,
-                                              visibility: .all) { completion in
-                completion(texts.data(using: .utf8), nil)
-                return nil
+            // 以标准字符串类型注册
+            provider.registerObject(texts as NSString as NSItemProviderWriting, visibility: .all)
+            
+            // 注册为明确的文本类型 - 增加多种UTType支持
+            ["public.text", "public.plain-text", kUTTypePlainText as String].forEach { typeID in
+                provider.registerDataRepresentation(forTypeIdentifier: typeID,
+                                                  visibility: .all) { completion in
+                    completion(texts.data(using: .utf8), nil)
+                    return nil
+                }
             }
         }
         
         // 处理图片 - 只使用第一张图片
-        if let firstImage = items.compactMap({ $0.image }).first,
-           let tiffData = firstImage.tiffRepresentation {
-            provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
-                                              visibility: .all) { completion in
-                completion(tiffData, nil)
-                return nil
+        if let firstImage = items.compactMap({ $0.image }).first {
+            // 直接注册NSImage对象
+            provider.registerObject(firstImage, visibility: .all)
+            
+            // 同时注册为二进制数据
+            if let tiffData = firstImage.tiffRepresentation {
+                provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
+                                                  visibility: .all) { completion in
+                    completion(tiffData, nil)
+                    return nil
+                }
             }
         }
         
         // 处理文件 - 查找所有选中项目中的文件
         let allFileURLs = items.compactMap { $0.fileURLs }.flatMap { $0 }
-        if let firstURL = allFileURLs.first,
-           FileManager.default.fileExists(atPath: firstURL.path) {
-            // 创建基于URL内容的provider
-            let contentProvider = NSItemProvider(contentsOf: firstURL)
-            if let contentProvider = contentProvider {
-                return contentProvider
+        if !allFileURLs.isEmpty {
+            // 逐个注册有效的URL
+            for url in allFileURLs {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    provider.registerObject(url as NSURL as NSItemProviderWriting, visibility: .all)
+                }
+            }
+            
+            // 单个文件处理 - 使用专用Provider
+            if let firstURL = allFileURLs.first,
+               FileManager.default.fileExists(atPath: firstURL.path) {
+                // 创建基于URL内容的provider
+                let contentProvider = NSItemProvider(contentsOf: firstURL)
+                if let contentProvider = contentProvider {
+                    return contentProvider
+                }
             }
         }
         
