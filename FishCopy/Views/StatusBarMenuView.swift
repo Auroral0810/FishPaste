@@ -145,6 +145,20 @@ struct StatusBarMenuView: View {
                     .padding(.horizontal, 5)
                 }
                 
+                // 删除按钮
+                Button(action: {
+                    deleteSelectedCategory()
+                }) {
+                    Image(systemName: "minus")
+                        .foregroundColor(.white)
+                        .font(.system(size: 14))
+                        .frame(width: 26, height: 26)
+                        .padding(.horizontal, 2)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canDeleteSelectedTab)
+                .opacity(canDeleteSelectedTab ? 1.0 : 0.3)
+                
                 // 添加按钮，放在最右边
                 Menu {
                     Button(action: {
@@ -163,7 +177,7 @@ struct StatusBarMenuView: View {
                         .foregroundColor(.white)
                         .font(.system(size: 14))
                         .frame(width: 26, height: 26)
-                        .padding(.horizontal, 5)
+                        .padding(.horizontal, 2)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -454,6 +468,67 @@ struct StatusBarMenuView: View {
     private func closeWindow(_ window: NSWindow) {
         window.close()
         activeWindows.removeAll { $0 === window }
+    }
+    
+    // 判断当前选中的标签是否可以删除
+    private var canDeleteSelectedTab: Bool {
+        // 系统默认标签不能删除（全部、钉选、今天、文本、图像、链接）
+        let defaultTabs = ["全部", "钉选", "今天", "文本", "图像", "链接"]
+        return !defaultTabs.contains(selectedTab)
+    }
+    
+    // 删除当前选中的分类
+    private func deleteSelectedCategory() {
+        guard canDeleteSelectedTab else { return }
+        
+        // 查找要删除的分类
+        if let categoryToDelete = categories.first(where: { $0.name == selectedTab }) {
+            // 显示确认对话框
+            let alert = NSAlert()
+            alert.messageText = "删除分类"
+            alert.informativeText = "确定要删除分类 \"\(categoryToDelete.name)\" 吗？这将会移除该分类下的所有剪贴板项目的分类标签。"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "删除")
+            alert.addButton(withTitle: "取消")
+            
+            // 显示对话框并处理结果
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                do {
+                    // 找到所有剪贴板项目
+                    let descriptor = FetchDescriptor<ClipboardItem>()
+                    let allItems = try modelContext.fetch(descriptor)
+                    
+                    // 筛选出属于此分类的项目并清除其分类标签
+                    for item in allItems {
+                        if item.category == categoryToDelete.name {
+                            item.category = nil
+                        }
+                    }
+                    
+                    // 删除分类
+                    modelContext.delete(categoryToDelete)
+                    
+                    // 保存更改
+                    try modelContext.save()
+                    
+                    // 切换到"全部"标签
+                    selectedTab = "全部"
+                    
+                    print("成功删除分类: \(categoryToDelete.name)")
+                } catch {
+                    print("删除分类时出错: \(error.localizedDescription)")
+                    
+                    // 显示错误提示
+                    let errorAlert = NSAlert()
+                    errorAlert.messageText = "删除分类失败"
+                    errorAlert.informativeText = "无法删除分类: \(error.localizedDescription)"
+                    errorAlert.alertStyle = .critical
+                    errorAlert.addButton(withTitle: "确定")
+                    errorAlert.runModal()
+                }
+            }
+        }
     }
     
     // 修改过滤逻辑，支持自定义分类
