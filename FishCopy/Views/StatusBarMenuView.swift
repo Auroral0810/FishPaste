@@ -53,6 +53,9 @@ struct StatusBarMenuView: View {
     // 状态变量，用于存储通知观察者
     @State private var categoryChangeObserver: NSObjectProtocol?
     
+    // 添加置顶窗口状态变量
+    @State private var isWindowAlwaysOnTop = false
+    
     var body: some View {
         VStack(spacing: 0) {
             // 顶部工具栏 - 固定高度
@@ -84,6 +87,17 @@ struct StatusBarMenuView: View {
                 .padding(6)
                 .background(Color.black.opacity(0.3))
                 .cornerRadius(8)
+                
+                // 置顶按钮
+                Button(action: {
+                    toggleWindowAlwaysOnTop()
+                }) {
+                    Image(systemName: isWindowAlwaysOnTop ? "pin.circle.fill" : "pin.circle")
+                        .foregroundColor(isWindowAlwaysOnTop ? .yellow : .white)
+                }
+                .buttonStyle(EffectButtonStyle())
+                .frame(width: 28, height: 28)
+                .help("保持窗口在最前端") // 添加悬停提示
                 
                 // 设置按钮
                 Button(action: {
@@ -593,6 +607,11 @@ struct StatusBarMenuView: View {
             detachedWindow.center()
         }
         
+        // 保持置顶状态（如果已启用）
+        if isWindowAlwaysOnTop {
+            detachedWindow.level = .floating
+        }
+        
         // 创建相同的内容视图
         let contentView = StatusBarMenuView()
             .environmentObject(clipboardManager)
@@ -647,6 +666,21 @@ struct StatusBarMenuView: View {
                 }
                 return false
             }
+        }
+    }
+    
+    // 切换窗口置顶状态
+    private func toggleWindowAlwaysOnTop() {
+        isWindowAlwaysOnTop.toggle()
+        
+        guard let window = NSApp.keyWindow else { return }
+        
+        if isWindowAlwaysOnTop {
+            // 设置窗口级别为浮动级别（总在最前）
+            window.level = .floating
+        } else {
+            // 恢复正常级别
+            window.level = .normal
         }
     }
 }
