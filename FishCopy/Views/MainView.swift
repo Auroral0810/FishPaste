@@ -10,9 +10,13 @@ import SwiftData
 
 struct MainView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
+    @Environment(\.modelContext) private var modelContext
     @State private var searchText = ""
     @State private var selectedTab = "全部"
     @State private var viewMode: ViewMode = .list
+    
+    // 添加分类查询
+    @Query(sort: \ClipboardCategory.sortOrder) var categories: [ClipboardCategory]
     
     // 视图模式枚举
     enum ViewMode {
@@ -90,8 +94,28 @@ struct MainView: View {
                     .buttonStyle(.plain)
                 }
                 
+                // 显示自定义分类
+                ForEach(categories) { category in
+                    Button(action: {
+                        selectedTab = category.name
+                    }) {
+                        Text(category.name)
+                            .lineLimit(1)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 6)
+                            .foregroundColor(selectedTab == category.name ? .white : .gray)
+                            .background(
+                                selectedTab == category.name ? 
+                                Color.blue : Color.clear
+                            )
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                }
+                
                 Button(action: {
                     // 添加新的自定义标签或分类
+                    openCategoryManagerWindow()
                 }) {
                     Image(systemName: "plus")
                         .foregroundColor(.gray)
@@ -173,6 +197,20 @@ struct MainView: View {
             .background(Color(hue: 0.0, saturation: 0.0, brightness: 0.10))
         }
         .background(Color(hue: 0.0, saturation: 0.0, brightness: 0.12)) // 深色背景
+        .onAppear {
+            // 设置窗口标题和标识符
+            if let window = NSApplication.shared.keyWindow {
+                window.title = "FishCopy 主窗口"
+                window.identifier = NSUserInterfaceItemIdentifier("FishCopyMainWindow")
+                
+                // 设置适当的最小尺寸以避免界面被压缩
+                window.minSize = NSSize(width: 600, height: 400)
+            }
+            
+            // 初始化剪贴板管理器的ModelContext
+            clipboardManager.setModelContext(modelContext)
+            print("MainView出现，设置ModelContext: \(modelContext)")
+        }
     }
     
     // 根据当前筛选条件获取内容
@@ -194,10 +232,41 @@ struct MainView: View {
                     return true
                 }
                 return false
-            default: // "全部"
-                return true
+            default: // "全部"或自定义分类
+                if selectedTab == "全部" {
+                    return true
+                } else {
+                    // 对于自定义分类，根据分类名称过滤
+                    if let category = item.category, category == selectedTab {
+                        return true
+                    }
+                    return false
+                }
             }
         }
+    }
+    
+    // 打开分类管理器窗口
+    private func openCategoryManagerWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 550),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "管理分类"
+        window.isReleasedWhenClosed = true
+        
+        // 使用独立文件中定义的CategoryManagerView
+        let contentView = CategoryManagerView(modelContext: modelContext)
+            .modelContext(modelContext) // 将modelContext注入到环境中
+        
+        // 保留对rootView的引用，防止内存回收
+        let hostingView = NSHostingView(rootView: contentView)
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import AppKit
 import UniformTypeIdentifiers
+import Foundation
 
 struct CategoryManagerView: View {
     // 模型上下文，用于数据库操作
@@ -388,7 +389,7 @@ struct CategoryManagerView: View {
             print("保存分类顺序成功")
             
             // 发送通知，通知导航栏更新分类顺序
-            NotificationCenter.default.post(name: Notification.Name("CategoryOrderChanged"), object: nil)
+            NotificationCenter.default.post(name: .categoryOrderChanged, object: nil)
             
             // 关闭窗口
             closeWindow()

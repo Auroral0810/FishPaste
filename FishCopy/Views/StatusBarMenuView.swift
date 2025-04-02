@@ -8,6 +8,13 @@
 import SwiftUI
 import SwiftData  // 添加SwiftData导入
 import AppKit  // 添加AppKit导入以使用NSWindow
+import Foundation
+// 使用Utils中的通知名称定义
+extension Notification.Name {
+    static var categoryOrderChanged: Notification.Name {
+        return Notification.Name("CategoryOrderChanged")
+    }
+}
 
 // 视图模式枚举 - 加入到结构体外部，便于复用
 enum ViewMode: String, CaseIterable {
@@ -36,9 +43,6 @@ struct StatusBarMenuView: View {
     @State private var showingSmartListSheet = false
     @State private var newListName = ""
     
-    // 保持窗口强引用以防止过早释放
-    @State private var activeWindows: [NSWindow] = []
-    
     // 添加分类管理器窗口状态
     @State private var showingCategoryManager = false
     
@@ -61,13 +65,18 @@ struct StatusBarMenuView: View {
             HStack {
                 // 多窗口切换按钮
                 Button(action: {
-                    // 多窗口功能逻辑
+                    // 将状态栏窗口转换为独立窗口
+                    detachWindowFromStatusBar()
                 }) {
                     Image(systemName: "square.on.square")
                         .foregroundColor(.white)
+                        .padding(4)
+                        .background(Color.blue.opacity(0.3))
+                        .cornerRadius(6)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(EffectButtonStyle())
                 .frame(width: 28, height: 28)
+                .help("在独立窗口中打开") // 添加悬停提示
                 
                 // 搜索栏
                 HStack {
@@ -345,19 +354,26 @@ struct StatusBarMenuView: View {
             // 将modelContext传递给clipboardManager
             clipboardManager.setModelContext(modelContext)
             
-            // 添加分类顺序变化的通知监听
-            setupCategoryChangeNotification()
+            // 订阅分类变更通知
+            categoryChangeObserver = NotificationCenter.default.addObserver(
+                forName: .categoryOrderChanged,
+                object: nil,
+                queue: .main) { _ in
+                    refreshCategories()
+            }
         }
         .onDisappear {
-            // 移除通知监听
-            removeCategoryChangeNotification()
+            // 移除通知订阅
+            if let observer = categoryChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
     
     // 设置通知监听
     private func setupCategoryChangeNotification() {
         categoryChangeObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("CategoryOrderChanged"),
+            forName: .categoryOrderChanged,
             object: nil,
             queue: .main
         ) { _ in
@@ -449,7 +465,7 @@ struct StatusBarMenuView: View {
         NSApp.activate(ignoringOtherApps: true)
         
         // 保持窗口引用以防止过早释放
-        activeWindows.append(window)
+        FishCopyApp.activeWindows.append(window)
     }
     
     // 添加智能列表窗口方法
@@ -509,13 +525,13 @@ struct StatusBarMenuView: View {
         NSApp.activate(ignoringOtherApps: true)
         
         // 保持窗口引用以防止过早释放
-        activeWindows.append(window)
+        FishCopyApp.activeWindows.append(window)
     }
     
     // 辅助方法：安全地关闭窗口并从activeWindows中移除
     private func closeWindow(_ window: NSWindow) {
         window.close()
-        activeWindows.removeAll { $0 === window }
+        FishCopyApp.activeWindows.removeAll { $0 === window }
     }
     
     // 打开分类管理器窗口
@@ -541,7 +557,7 @@ struct StatusBarMenuView: View {
         NSApp.activate(ignoringOtherApps: true)
         
         // 保持窗口引用以防止过早释放
-        activeWindows.append(window)
+        FishCopyApp.activeWindows.append(window)
     }
     
     // 判断当前选中的标签是否可以删除
@@ -549,6 +565,61 @@ struct StatusBarMenuView: View {
         // 系统默认标签不能删除（全部、钉选、今天、文本、图像、链接）
         let defaultTabs = ["全部", "钉选", "今天", "文本", "图像", "链接"]
         return !defaultTabs.contains(selectedTab)
+    }
+    
+    // 将状态栏窗口转换为独立窗口
+    private func detachWindowFromStatusBar() {
+        // 获取当前窗口
+        guard let currentWindow = NSApp.keyWindow else {
+            print("无法获取当前窗口")
+            return
+        }
+        
+        // 存储当前窗口的内容和大小
+        let contentSize = currentWindow.contentView?.frame.size ?? NSSize(width: 350, height: 450)
+        
+        // 创建新窗口
+        let detachedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: contentSize.width, height: contentSize.height),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        // 设置窗口标题和标识符
+        detachedWindow.title = "FishCopy"
+        detachedWindow.identifier = NSUserInterfaceItemIdentifier("DetachedFishCopyWindow")
+        
+        // 将当前窗口位置作为新窗口的位置
+        if let screenFrame = currentWindow.screen?.frame {
+            let currentOrigin = currentWindow.frame.origin
+            detachedWindow.setFrameOrigin(currentOrigin)
+        } else {
+            detachedWindow.center()
+        }
+        
+        // 创建相同的内容视图
+        let contentView = StatusBarMenuView()
+            .environmentObject(clipboardManager)
+            .frame(minWidth: 350, minHeight: 400)
+            .modelContext(modelContext)
+        
+        // 设置窗口内容
+        let hostingView = NSHostingView(rootView: contentView)
+        detachedWindow.contentView = hostingView
+        
+        // 设置窗口最小大小
+        detachedWindow.minSize = NSSize(width: 350, height: 400)
+        
+        // 显示窗口
+        detachedWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // 关闭当前的状态栏窗口
+        currentWindow.close()
+        
+        // 保存对窗口的引用，防止被释放
+        FishCopyApp.activeWindows.append(detachedWindow)
     }
     
     // 修改过滤逻辑，支持自定义分类
@@ -874,4 +945,14 @@ struct GridClipboardItemView: View {
 }
 
 // 分类管理器视图
+
+// 自定义按钮样式 - 提供点击反馈效果
+struct EffectButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
+            .brightness(configuration.isPressed ? 0.1 : 0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
 
