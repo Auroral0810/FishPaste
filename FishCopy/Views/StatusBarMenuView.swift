@@ -181,6 +181,7 @@ struct StatusBarMenuView: View {
                                 ClipboardItemView(item: item)
                                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                                     .listRowBackground(Color.clear)
+                                    .clipboardItemContextMenu(item: item)
                                     .onTapGesture {
                                         clipboardManager.copyToClipboard(item)
                                     }
@@ -196,6 +197,7 @@ struct StatusBarMenuView: View {
                                 RichClipboardItemView(item: item)
                                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                                     .listRowBackground(Color.clear)
+                                    .clipboardItemContextMenu(item: item)
                                     .onTapGesture {
                                         clipboardManager.copyToClipboard(item)
                                     }
@@ -205,11 +207,19 @@ struct StatusBarMenuView: View {
                         .background(Color.clear)
                         
                     case .gridView:
-                        // 网格视图
+                        // 网格视图 - 固定2×2布局
                         ScrollView {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 10) {
+                            LazyVGrid(
+                                columns: [
+                                    GridItem(.fixed(130), spacing: 12),
+                                    GridItem(.fixed(130), spacing: 12)
+                                ],
+                                spacing: 12
+                            ) {
                                 ForEach(filteredClipboardItems) { item in
                                     GridClipboardItemView(item: item)
+                                        .frame(width: 130, height: 130)
+                                        .clipboardItemContextMenu(item: item)
                                         .onTapGesture {
                                             clipboardManager.copyToClipboard(item)
                                         }
@@ -226,71 +236,72 @@ struct StatusBarMenuView: View {
             Divider()
                 .background(Color.gray.opacity(0.3))
             
-            // 底部工具栏 - 更新为新设计
-            HStack {
-                // 视图模式切换按钮
-                Button(action: {
-                    showingViewModeMenu = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "line.3.horizontal.decrease")
-                            .foregroundColor(.white)
-                        
-                        Text(viewMode.rawValue)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 6)
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showingViewModeMenu, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(ViewMode.allCases, id: \.self) { mode in
-                            Button(action: {
-                                viewMode = mode
-                                showingViewModeMenu = false
-                            }) {
-                                HStack {
-                                    Image(systemName: mode.iconName)
-                                    Text(mode.rawValue)
-                                }
-                                .foregroundColor(.white)
-                                .frame(minWidth: 120, alignment: .leading)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(viewMode == mode ? Color.blue.opacity(0.5) : Color.clear)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .background(Color(red: 0.15, green: 0.15, blue: 0.15))
-                    .cornerRadius(8)
-                    .padding(4)
-                }
-                
-                Spacer()
-                
-                // 项目计数
+            // 底部工具栏 - 使用ZStack实现真正的居中
+            ZStack {
+                // 中心层 - 居中显示项目计数
                 Text("\(filteredClipboardItems.count) 个项目")
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 
-                Spacer()
-                
-                // 清除历史按钮
-                Button(action: {
-                    clipboardManager.clearHistory()
-                }) {
-                    Image(systemName: "trash")
-                        .foregroundColor(.white)
+                // 顶层 - 左右两侧的按钮
+                HStack {
+                    // 左侧视图切换按钮
+                    Button(action: {
+                        showingViewModeMenu = true
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "line.3.horizontal.decrease")
+                                .foregroundColor(.white)
+                            
+                            Text(viewMode.rawValue)
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showingViewModeMenu, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(ViewMode.allCases, id: \.self) { mode in
+                                Button(action: {
+                                    viewMode = mode
+                                    showingViewModeMenu = false
+                                }) {
+                                    HStack {
+                                        Image(systemName: mode.iconName)
+                                        Text(mode.rawValue)
+                                    }
+                                    .foregroundColor(.white)
+                                    .frame(minWidth: 120, alignment: .leading)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .background(viewMode == mode ? Color.blue.opacity(0.5) : Color.clear)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .background(Color(red: 0.15, green: 0.15, blue: 0.15))
+                        .cornerRadius(8)
+                        .padding(4)
+                    }
+                    
+                    Spacer()
+                    
+                    // 清除历史按钮
+                    Button(action: {
+                        clipboardManager.clearHistory()
+                    }) {
+                        Image(systemName: "trash")
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
             .frame(height: bottomBarHeight)
-            .background(Color(red: 0.1, green: 0.1, blue: 0.12)) // 保持与整体颜色一致
+            .background(Color(red: 0.1, green: 0.1, blue: 0.12))
         }
         .background(Color(red: 0.1, green: 0.1, blue: 0.12)) // 深色背景
         .sheet(isPresented: $showingNormalListSheet) {
@@ -384,145 +395,6 @@ struct ClipboardItemView: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
-        .contextMenu {
-            // 粘贴至FishCopy选项
-            Button(action: {
-                // 粘贴到应用程序中的操作
-            }) {
-                Label("粘贴至'FishCopy'", systemImage: "arrow.right.doc.on.clipboard")
-            }
-            
-            // 粘贴为子菜单 - 增加选项
-            Menu {
-                Button("文本", action: {})
-                Button("富文本", action: {})
-                Button("HTML", action: {})
-                Divider()
-                Button("无格式文本", action: {}) // 新增选项
-                Button("带源代码格式", action: {}) // 新增选项
-            } label: {
-                Label("粘贴为", systemImage: "doc.on.clipboard")
-            }
-            
-            // 复制选项
-            Button(action: {
-                clipboardManager.copyToClipboard(item)
-            }) {
-                Label("复制", systemImage: "doc.on.doc")
-            }
-            
-            // 复制为子菜单
-            Menu {
-                Button("文本", action: {})
-                Button("富文本", action: {})
-                Button("HTML", action: {})
-            } label: {
-                Label("复制为", systemImage: "doc.on.doc.fill")
-            }
-            
-            Divider()
-            
-            // 图片相关选项 - 仅当内容是图片时显示
-            if item.image != nil {
-                Button(action: {
-                    // 编辑图片逻辑
-                }) {
-                    Label("编辑图片", systemImage: "pencil")
-                }
-                
-                Button(action: {
-                    // 保存图片逻辑
-                }) {
-                    Label("保存图片", systemImage: "square.and.arrow.down")
-                }
-                
-                Button(action: {
-                    // 添加标题逻辑
-                }) {
-                    Label("添加标题", systemImage: "text.badge.plus")
-                }
-                
-                Divider()
-            }
-            // 文本相关选项 - 仅当内容是文本时显示
-            else if item.text != nil {
-                Button(action: {
-                    // 编辑文本逻辑
-                }) {
-                    Label("编辑文本", systemImage: "pencil")
-                }
-                
-                Button(action: {
-                    // 编辑标题逻辑
-                }) {
-                    Label("编辑标题", systemImage: "text.badge.star")
-                }
-                
-                Divider()
-            }
-            
-            // 添加到列表子菜单 - 更新选项包含钉选和分类
-            Menu {
-                Button(action: {
-                    // 添加到钉选逻辑
-                    var updatedItem = item
-                    updatedItem.isPinned = true
-                    // 更新项目
-                }) {
-                    Label("钉选", systemImage: "pin.fill")
-                }
-                
-                Divider()
-                
-                Button(action: {
-                    // 创建新列表逻辑
-                }) {
-                    Label("创建新列表", systemImage: "folder.badge.plus")
-                }
-                
-                Divider()
-                
-                // 预设分类
-                Button("工作", action: {})
-                Button("个人", action: {})
-                Button("代码", action: {})
-                
-                // 这里可以添加用户自定义的分类
-            } label: {
-                Label("添加到列表", systemImage: "list.bullet")
-            }
-            
-            Divider()
-            
-            // 删除选项
-            Button(action: {
-                clipboardManager.deleteItems(withIDs: [item.id])
-            }) {
-                Label("删除", systemImage: "trash")
-            }
-            
-            Divider()
-            
-            // 预览选项
-            Button(action: {
-                // 预览逻辑
-            }) {
-                Label("预览", systemImage: "eye")
-            }
-            
-            // 分享子菜单
-            Menu {
-                Button("AirDrop", action: {})
-                Button("信息", action: {})
-                Button("邮件", action: {})
-                Button("备忘录", action: {})
-            } label: {
-                Label("分享", systemImage: "square.and.arrow.up")
-            }
-        }
-        .onTapGesture {
-            clipboardManager.copyToClipboard(item)
-        }
     }
     
     // 内容类型图标
@@ -606,10 +478,6 @@ struct RichClipboardItemView: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
-        .contextMenu {
-            // 保持与原先相同的上下文菜单
-            // ... 上下文菜单代码 ...
-        }
     }
     
     // 这里复用与ClipboardItemView相同的辅助方法
@@ -647,28 +515,30 @@ struct RichClipboardItemView: View {
     }
 }
 
-// 网格视图组件
+// 修改网格视图组件 - 修复语法错误
 struct GridClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             // 内容预览区域
             ZStack {
                 Rectangle()
                     .fill(Color(white: 0.2))
-                    .aspectRatio(1.0, contentMode: .fit)
-                    .cornerRadius(8)
+                    .frame(width: 130, height: 110)
+                    .cornerRadius(6)
                 
                 if let image = item.image {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .cornerRadius(8)
+                        .frame(width: 130, height: 110)
+                        .cornerRadius(6)
+                        .clipped()
                 } else {
                     contentPreview
+                        .frame(width: 130, height: 110)
                 }
                 
                 // 类型指示器
@@ -677,38 +547,31 @@ struct GridClipboardItemView: View {
                         Spacer()
                         contentTypeIcon
                             .frame(width: 16, height: 16)
-                            .padding(4)
+                            .padding(2)
                             .background(Color.black.opacity(0.5))
                             .cornerRadius(4)
                     }
                     Spacer()
                 }
-                .padding(6)
+                .padding(2)
             }
-            .frame(height: 90)
             
             // 时间戳
             Text(item.timestamp, style: .time)
-                .font(.caption)
+                .font(.system(size: 10))
                 .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
         }
-        .frame(height: 120)
-        .frame(maxWidth: .infinity)
         .background(Color(white: 0.15))
-        .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-        )
+        .cornerRadius(8)
+        .frame(width: 130, height: 130)
         .contentShape(Rectangle())
-        .contextMenu {
-            // 保持与原先相同的上下文菜单
-            // ... 上下文菜单代码 ...
-        }
     }
     
-    // 内容类型图标
-    private var contentTypeIcon: some View {
+    // 内容类型图标 - 移出闭包
+    var contentTypeIcon: some View {
         Group {
             if item.image != nil {
                 Image(systemName: "photo")
@@ -729,8 +592,8 @@ struct GridClipboardItemView: View {
         }
     }
     
-    // 内容预览
-    private var contentPreview: some View {
+    // 内容预览 - 移出闭包
+    var contentPreview: some View {
         Group {
             if let text = item.text {
                 VStack(alignment: .leading) {
