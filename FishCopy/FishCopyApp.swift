@@ -144,4 +144,29 @@ struct FishCopyApp: App {
     static func openMainWindow() {
         shared.openMainWindow()
     }
+    
+    // 打开设置窗口
+    func openSettingsWindow() {
+        // 检查是否已有设置窗口
+        if let existingWindow = NSApplication.shared.windows.first(where: { $0.title.contains("FishCopy 设置") }) {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        // 创建设置内容视图
+        let settingsView = SettingsView(clipboardManager: clipboardManager)
+        
+        // 创建窗口控制器并显示
+        let hostingController = NSHostingController(rootView: settingsView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "FishCopy 设置"
+        window.center()
+        window.setFrameAutosaveName("SettingsWindow")
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用
+        FishCopyApp.activeWindows.append(window)
+    }
 }

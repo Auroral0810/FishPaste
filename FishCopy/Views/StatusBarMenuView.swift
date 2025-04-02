@@ -812,6 +812,11 @@ struct StatusBarMenuView: View {
             NSMenu.popUpContextMenu(menu, with: event, for: NSApp.keyWindow?.contentView ?? NSView())
         }
     }
+    
+    // 打开设置窗口
+    private func openSettings() {
+        FishCopyApp.shared.openSettingsWindow()
+    }
 }
 
 // 固定大小的标签按钮 - 更轻量和紧凑
