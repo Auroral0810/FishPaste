@@ -24,6 +24,17 @@ class ClipboardManager: ObservableObject {
     @Published var isMonitoring: Bool = true
     // 监控间隔（秒）
     @AppStorage("monitoringInterval") var monitoringInterval: Double = 0.5
+    // 音效设置
+    @AppStorage("enableSoundEffects") var enableSoundEffects: Bool = true
+    
+    // 音效对象
+    private var clipboardChangedSound: NSSound?
+    private var manualCopySound: NSSound?
+    
+    // 标记是否为内部复制操作，避免重复播放音效
+    private var isInternalCopyOperation = false
+    // 内部复制操作的时间戳，用于避免冲突
+    private var lastInternalCopyTime = Date(timeIntervalSince1970: 0)
     
     // SwiftData模型上下文
     private var modelContext: ModelContext?
@@ -43,11 +54,54 @@ class ClipboardManager: ObservableObject {
             print("从UserDefaults加载监控间隔设置: \(savedInterval)秒")
         }
         
+        // 加载音效
+        loadSoundEffects()
+        
         // 启动剪贴板监控
         startMonitoring()
         
         // 加载测试数据（当真实数据库连接后可以移除）
         loadDemoData()
+    }
+    
+    // 加载音效文件
+    private func loadSoundEffects() {
+        // 使用系统内置超短音效 - "Morse"作为剪贴板变化的提示音
+        clipboardChangedSound = NSSound(named: "Morse")
+        clipboardChangedSound?.volume = 0.3 // 降低音量以免干扰
+        
+        // 使用系统内置超短音效 - "Ping"作为手动复制的提示音
+        manualCopySound = NSSound(named: "Ping") 
+        manualCopySound?.volume = 0.4
+        
+        print("音效加载完成: 使用超短系统音效")
+    }
+    
+    // 播放剪贴板变化音效
+    private func playClipboardChangedSound() {
+        // 如果这是一个内部复制操作或者在内部复制后的短时间内，不播放自动检测音效
+        if isInternalCopyOperation || Date().timeIntervalSince(lastInternalCopyTime) < 1.0 {
+            print("检测到内部复制操作，跳过自动检测音效")
+            return
+        }
+        
+        guard enableSoundEffects, let sound = clipboardChangedSound else { return }
+        sound.stop() // 确保停止之前的播放
+        sound.play()
+    }
+    
+    // 播放手动复制音效
+    private func playManualCopySound() {
+        guard enableSoundEffects, let sound = manualCopySound else { return }
+        sound.stop() // 确保停止之前的播放
+        sound.play()
+    }
+    
+    // 设置音效开关
+    func setEnableSoundEffects(_ enable: Bool) {
+        enableSoundEffects = enable
+        UserDefaults.standard.set(enable, forKey: "enableSoundEffects")
+        print("音效设置已更改: \(enable ? "启用" : "禁用")")
     }
     
     // 设置模型上下文
@@ -264,6 +318,9 @@ class ClipboardManager: ObservableObject {
                         object: nil
                     )
                     
+                    // 播放剪贴板变化音效
+                    self.playClipboardChangedSound()
+                    
                     // 为每个文件创建单独的剪贴板内容
                     for (index, fileURL) in multipleFiles.enumerated() {
                         let fileName = fileURL.lastPathComponent
@@ -399,6 +456,9 @@ class ClipboardManager: ObservableObject {
                         object: nil
                     )
                     
+                    // 播放剪贴板变化音效
+                    self.playClipboardChangedSound()
+                    
                     // 为每张图片创建单独的剪贴板内容
                     for (index, img) in multipleImages.enumerated() {
                         // 创建图片名称
@@ -465,6 +525,9 @@ class ClipboardManager: ObservableObject {
                     }
                 }
             }
+            
+            // 播放剪贴板变化音效
+            playClipboardChangedSound()
         } else {
             print("剪贴板中没有检测到有效内容")
         }
@@ -657,6 +720,10 @@ class ClipboardManager: ObservableObject {
     
     // 从剪贴板历史中复制项目到当前剪贴板
     func copyToClipboard(_ content: ClipboardContent) {
+        // 标记为内部复制操作，避免重复播放音效
+        isInternalCopyOperation = true
+        lastInternalCopyTime = Date()
+        
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         
@@ -690,6 +757,14 @@ class ClipboardManager: ObservableObject {
                             name: Notification.Name("ClipboardContentChanged"),
                             object: nil
                         )
+                        
+                        // 播放手动复制音效
+                        playManualCopySound()
+                        
+                        // 延迟重置内部复制标志，避免过早检测到变化
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                            self?.isInternalCopyOperation = false
+                        }
                         
                         return // 成功复制多张图片后直接返回
                     }
@@ -756,6 +831,14 @@ class ClipboardManager: ObservableObject {
             name: Notification.Name("ClipboardContentChanged"),
             object: nil
         )
+        
+        // 播放手动复制音效
+        playManualCopySound()
+        
+        // 延迟重置内部复制标志，避免过早检测到变化
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.isInternalCopyOperation = false
+        }
     }
     
     // 清除所有历史记录
@@ -934,6 +1017,10 @@ class ClipboardManager: ObservableObject {
     
     // 复制多个项目到剪贴板
     func copyMultipleToClipboard(_ items: [ClipboardContent]) {
+        // 标记为内部复制操作，避免重复播放音效
+        isInternalCopyOperation = true
+        lastInternalCopyTime = Date()
+        
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         
@@ -980,6 +1067,14 @@ class ClipboardManager: ObservableObject {
             name: Notification.Name("ClipboardContentChanged"),
             object: nil
         )
+        
+        // 播放手动复制音效
+        playManualCopySound()
+        
+        // 延迟重置内部复制标志，避免过早检测到变化
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.isInternalCopyOperation = false
+        }
     }
     
     // 创建单个项目的NSItemProvider
