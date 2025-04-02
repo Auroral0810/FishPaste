@@ -931,4 +931,133 @@ class ClipboardManager: ObservableObject {
             center.deliver(notification)
         }
     }
+    
+    // 复制多个项目到剪贴板
+    func copyMultipleToClipboard(_ items: [ClipboardContent]) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        
+        var success = false
+        
+        // 收集所有文本内容
+        let texts = items.compactMap { $0.text }.joined(separator: "\n")
+        if !texts.isEmpty {
+            success = pasteboard.setString(texts, forType: .string)
+            print("已复制\(items.count)个文本到剪贴板")
+        }
+        
+        // 收集所有图片
+        let images = items.compactMap { $0.image }
+        if !images.isEmpty {
+            // 创建安全拷贝
+            let safeImages = images.compactMap { image -> NSImage? in
+                if let tiffData = image.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]),
+                   let safeImage = NSImage(data: pngData) {
+                    return safeImage
+                }
+                return nil
+            }
+            
+            if !safeImages.isEmpty {
+                success = pasteboard.writeObjects(safeImages)
+                print("已复制\(safeImages.count)个图片到剪贴板")
+            }
+        }
+        
+        // 收集所有文件URL
+        let allURLs = items.compactMap { $0.fileURLs }.flatMap { $0 }
+        let validURLs = allURLs.filter { url in url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
+        
+        if !validURLs.isEmpty {
+            success = pasteboard.writeObjects(validURLs as [NSURL])
+            print("已复制\(validURLs.count)个文件到剪贴板")
+        }
+        
+        // 触发状态栏图标旋转动画
+        NotificationCenter.default.post(
+            name: Notification.Name("ClipboardContentChanged"),
+            object: nil
+        )
+    }
+    
+    // 创建单个项目的NSItemProvider - 从StatusBarMenuView移动到ClipboardManager
+    func createItemProvider(from item: ClipboardContent) -> NSItemProvider {
+        let provider = NSItemProvider()
+        
+        // 处理文本内容
+        if let text = item.text {
+            provider.registerDataRepresentation(forTypeIdentifier: kUTTypePlainText as String, 
+                                              visibility: .all) { completion in
+                completion(text.data(using: .utf8), nil)
+                return nil
+            }
+        }
+        
+        // 处理图片内容
+        if let image = item.image, let tiffData = image.tiffRepresentation {
+            provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
+                                              visibility: .all) { completion in
+                completion(tiffData, nil)
+                return nil
+            }
+        }
+        
+        // 处理文件内容 - 直接拖放文件而不是路径
+        if let urls = item.fileURLs, !urls.isEmpty {
+            // 遍历所有文件URL并添加它们
+            for url in urls {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    // 对于每个存在的文件，创建一个内容类型的provider
+                    let contentProvider = NSItemProvider(contentsOf: url)
+                    
+                    // 如果创建成功，就使用这个provider代替原来的
+                    if let contentProvider = contentProvider {
+                        return contentProvider
+                    }
+                }
+            }
+        }
+        
+        return provider
+    }
+    
+    // 创建多个项目的NSItemProvider - 从StatusBarMenuView移动到ClipboardManager
+    func createMultiItemsProvider(from items: [ClipboardContent]) -> NSItemProvider {
+        let provider = NSItemProvider()
+        
+        // 收集所有文本内容
+        let texts = items.compactMap { $0.text }.joined(separator: "\n")
+        if !texts.isEmpty {
+            provider.registerDataRepresentation(forTypeIdentifier: kUTTypePlainText as String,
+                                              visibility: .all) { completion in
+                completion(texts.data(using: .utf8), nil)
+                return nil
+            }
+        }
+        
+        // 处理图片 - 只使用第一张图片
+        if let firstImage = items.compactMap({ $0.image }).first,
+           let tiffData = firstImage.tiffRepresentation {
+            provider.registerDataRepresentation(forTypeIdentifier: kUTTypeTIFF as String,
+                                              visibility: .all) { completion in
+                completion(tiffData, nil)
+                return nil
+            }
+        }
+        
+        // 处理文件 - 查找所有选中项目中的文件
+        let allFileURLs = items.compactMap { $0.fileURLs }.flatMap { $0 }
+        if let firstURL = allFileURLs.first,
+           FileManager.default.fileExists(atPath: firstURL.path) {
+            // 创建基于URL内容的provider
+            let contentProvider = NSItemProvider(contentsOf: firstURL)
+            if let contentProvider = contentProvider {
+                return contentProvider
+            }
+        }
+        
+        return provider
+    }
 } 

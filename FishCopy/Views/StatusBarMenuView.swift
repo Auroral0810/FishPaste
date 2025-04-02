@@ -9,6 +9,8 @@ import SwiftUI
 import SwiftData  // 添加SwiftData导入
 import AppKit  // 添加AppKit导入以使用NSWindow
 import Foundation
+import UniformTypeIdentifiers  // 添加UniformTypeIdentifiers导入
+import CoreServices  // 添加CoreServices导入以使用kUTType常量
 
 // 视图模式枚举 - 加入到结构体外部，便于复用
 enum ViewMode: String, CaseIterable {
@@ -31,6 +33,10 @@ struct StatusBarMenuView: View {
     @Query(sort: \ClipboardCategory.sortOrder) var categories: [ClipboardCategory]  // 明确按sortOrder排序
     @State private var searchText = ""
     @State private var selectedTab = "全部" // 默认选中"全部"标签
+    
+    // 添加多选相关状态变量
+    @State private var isMultiSelectMode = false
+    @State private var selectedItems = Set<UUID>()
     
     // 添加这些状态变量
     @State private var showingNormalListSheet = false
@@ -61,322 +67,23 @@ struct StatusBarMenuView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // 顶部工具栏 - 固定高度
-            HStack {
-                // 多窗口切换按钮
-                Button(action: {
-                    // 将状态栏窗口转换为独立窗口
-                    detachWindowFromStatusBar()
-                }) {
-                    Image(systemName: "square.on.square")
-                        .foregroundColor(.white)
-                        .padding(4)
-                        .background(Color.blue.opacity(0.3))
-                        .cornerRadius(6)
-                }
-                .buttonStyle(EffectButtonStyle())
-                .frame(width: 28, height: 28)
-                .help("在独立窗口中打开") // 添加悬停提示
-                
-                // 搜索栏
-                if isSearching {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
-                        
-                        TextField("输入开始搜索...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .foregroundColor(.white)
-                    }
-                    .padding(6)
-                    .background(Color.black.opacity(0.3))
-                    .cornerRadius(8)
-                }
-                
-                Spacer()
-                
-                // 隐藏/显示搜索按钮
-                Button(action: {
-                    withAnimation {
-                        isSearching.toggle()
-                    }
-                }) {
-                    Image(systemName: isSearching ? "eye.slash" : "magnifyingglass")
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(EffectButtonStyle())
-                .frame(width: 28, height: 28)
-                .help(isSearching ? "隐藏搜索" : "显示搜索") // 添加悬停提示
-                
-                // 置顶按钮
-                Button(action: {
-                    toggleWindowAlwaysOnTop()
-                }) {
-                    Image(systemName: isWindowAlwaysOnTop ? "pin.circle.fill" : "pin.circle")
-                        .foregroundColor(isWindowAlwaysOnTop ? .yellow : .white)
-                }
-                .buttonStyle(EffectButtonStyle())
-                .frame(width: 28, height: 28)
-                .help("保持窗口在最前端") // 添加悬停提示
-                
-                // 设置按钮
-                Button(action: {
-                    showSettingsMenu()
-                }) {
-                    Image(systemName: "gearshape")
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(.plain)
-                .frame(width: 28, height: 28)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .frame(height: searchBarHeight)
+            // 顶部工具栏
+            topToolbar
             
-            // 标签栏区域 - 使用可滚动布局
-            HStack(spacing: 0) {
-                // 标签按钮区域 - 使用ScrollView替代固定HStack
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {  // 减小间距
-                        // 全部按钮
-                        TabButtonFixed(title: "全部", isSelected: selectedTab == "全部") {
-                            selectedTab = "全部"
-                        }
-                        
-                        // 钉选按钮 - 修复为可点击的按钮并与其他标签保持一致
-                        Button(action: {
-                            selectedTab = "钉选"
-                        }) {
-                            HStack(spacing: 2) {
-                                Image(systemName: "pin.fill")
-                                    .font(.system(size: 9))
-                                Text("钉选")
-                                    .font(.system(size: 12))
-                            }
-                            .foregroundColor(selectedTab == "钉选" ? .white : .gray)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(selectedTab == "钉选" ? Color.blue : Color.clear)
-                            .cornerRadius(4)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        // 其他标签按钮
-                        TabButtonFixed(title: "今天", isSelected: selectedTab == "今天") {
-                            selectedTab = "今天"
-                        }
-                        
-                        TabButtonFixed(title: "文本", isSelected: selectedTab == "文本") {
-                            selectedTab = "文本"
-                        }
-                        
-                        TabButtonFixed(title: "图像", isSelected: selectedTab == "图像") {
-                            selectedTab = "图像"
-                        }
-                        
-                        TabButtonFixed(title: "链接", isSelected: selectedTab == "链接") {
-                            selectedTab = "链接"
-                        }
-                        
-                        // 显示用户创建的分类
-                        ForEach(categories) { category in
-                            TabButtonFixed(title: category.name, isSelected: selectedTab == category.name) {
-                                selectedTab = category.name
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 5)
-                }
-                
-                // 删除按钮
-                Button(action: {
-                    openCategoryManagerWindow()
-                }) {
-                    Image(systemName: "minus")
-                        .foregroundColor(.white)
-                        .font(.system(size: 14))
-                        .frame(width: 26, height: 26)
-                        .padding(.horizontal, 2)
-                }
-                .buttonStyle(.borderless)
-                
-                // 添加按钮，放在最右边
-                Menu {
-                    Button(action: {
-                        openNormalListWindow()  // 使用新方法
-                    }) {
-                        Text("创建普通列表")
-                    }
-                    
-                    Button(action: {
-                        openSmartListWindow()  // 使用新方法
-                    }) {
-                        Text("创建智能列表")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .foregroundColor(.white)
-                        .font(.system(size: 14))
-                        .frame(width: 26, height: 26)
-                        .padding(.horizontal, 2)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-            }
-            .frame(height: tabBarHeight)
-            .background(Color(red: 0.12, green: 0.12, blue: 0.14))
+            // 标签栏区域
+            categoryTabBar
             
             Divider()
                 .background(Color.gray.opacity(0.3))
             
-            // 剪贴板历史列表 - 固定高度，内容可滚动
-            ZStack {
-                // 背景颜色，确保空白区域也是深色
-                Color(red: 0.1, green: 0.1, blue: 0.12)
-                    .frame(height: contentHeight)
-                
-                if filteredClipboardItems.isEmpty {
-                    // 无内容状态
-                    VStack(spacing: 15) {
-                        Image(systemName: "doc.on.clipboard")
-                            .font(.system(size: 30))
-                            .foregroundColor(.gray)
-                        Text("暂无剪贴板历史")
-                            .foregroundColor(.gray)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    // 根据视图模式显示不同的列表样式
-                    switch viewMode {
-                    case .simpleList:
-                        // 简洁列表视图
-                        List {
-                            ForEach(filteredClipboardItems) { item in
-                                ClipboardItemView(item: item)
-                                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                                    .listRowBackground(Color.clear)
-                                    .clipboardItemContextMenu(item: item)
-                                    .onTapGesture {
-                                        clipboardManager.copyToClipboard(item)
-                                    }
-                            }
-                        }
-                        .listStyle(.plain)
-                        .background(Color.clear)
-                        
-                    case .richList:
-                        // 丰富列表视图 - 显示更多细节
-                        List {
-                            ForEach(filteredClipboardItems) { item in
-                                RichClipboardItemView(item: item)
-                                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                                    .listRowBackground(Color.clear)
-                                    .clipboardItemContextMenu(item: item)
-                                    .onTapGesture {
-                                        clipboardManager.copyToClipboard(item)
-                                    }
-                            }
-                        }
-                        .listStyle(.plain)
-                        .background(Color.clear)
-                        
-                    case .gridView:
-                        // 网格视图 - 固定2×2布局
-                        ScrollView {
-                            LazyVGrid(
-                                columns: [
-                                    GridItem(.fixed(130), spacing: 12),
-                                    GridItem(.fixed(130), spacing: 12)
-                                ],
-                                spacing: 12
-                            ) {
-                                ForEach(filteredClipboardItems) { item in
-                                    GridClipboardItemView(item: item)
-                                        .frame(width: 130, height: 130)
-                                        .clipboardItemContextMenu(item: item)
-                                        .onTapGesture {
-                                            clipboardManager.copyToClipboard(item)
-                                        }
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                        }
-                    }
-                }
-            }
-            .frame(height: contentHeight)
+            // 剪贴板历史列表
+            clipboardContentView
             
             Divider()
                 .background(Color.gray.opacity(0.3))
             
             // 底部操作区域
-            VStack(spacing: 0) {
-                // 项目计数和视图切换
-                HStack {
-                    // 左侧视图切换按钮
-                    Button(action: {
-                        showingViewModeMenu = true
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "line.3.horizontal.decrease")
-                                .foregroundColor(.white)
-                            
-                            Text(viewMode.rawValue)
-                                .font(.system(size: 12))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showingViewModeMenu, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(ViewMode.allCases, id: \.self) { mode in
-                                Button(action: {
-                                    viewMode = mode
-                                    showingViewModeMenu = false
-                                }) {
-                                    HStack {
-                                        Image(systemName: mode.iconName)
-                                        Text(mode.rawValue)
-                                    }
-                                    .foregroundColor(.white)
-                                    .frame(minWidth: 120, alignment: .leading)
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 12)
-                                    .background(viewMode == mode ? Color.blue.opacity(0.5) : Color.clear)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .background(Color(red: 0.15, green: 0.15, blue: 0.15))
-                        .cornerRadius(8)
-                        .padding(4)
-                    }
-                    
-                    Spacer()
-                    
-                    // 项目计数
-                    Text("\(filteredClipboardItems.count) 个项目")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
-                    
-                    Spacer()
-                    
-                    // 清除历史按钮
-                    Button(action: {
-                        clipboardManager.clearHistory()
-                    }) {
-                        Image(systemName: "trash")
-                            .foregroundColor(.white)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color(red: 0.1, green: 0.1, blue: 0.12))
-            }
+            bottomActionBar
         }
         .background(Color(red: 0.1, green: 0.1, blue: 0.12)) // 深色背景
         .onAppear {
@@ -398,6 +105,383 @@ struct StatusBarMenuView: View {
                 NotificationCenter.default.removeObserver(observer)
             }
         }
+    }
+    
+    // MARK: - 子视图组件
+    
+    // 顶部工具栏
+    private var topToolbar: some View {
+        HStack {
+            // 多窗口切换按钮
+            Button(action: {
+                // 将状态栏窗口转换为独立窗口
+                detachWindowFromStatusBar()
+            }) {
+                Image(systemName: "square.on.square")
+                    .foregroundColor(.white)
+                    .padding(4)
+                    .background(Color.blue.opacity(0.3))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(EffectButtonStyle())
+            .frame(width: 28, height: 28)
+            .help("在独立窗口中打开") // 添加悬停提示
+            
+            // 搜索栏
+            if isSearching {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.gray)
+                    
+                    TextField("输入开始搜索...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .foregroundColor(.white)
+                }
+                .padding(6)
+                .background(Color.black.opacity(0.3))
+                .cornerRadius(8)
+            }
+            
+            Spacer()
+            
+            // 多选模式切换按钮
+            Button(action: {
+                toggleMultiSelectMode()
+            }) {
+                Image(systemName: isMultiSelectMode ? "checkmark.circle.fill" : "checkmark.circle")
+                    .foregroundColor(isMultiSelectMode ? .blue : .white)
+            }
+            .buttonStyle(EffectButtonStyle())
+            .frame(width: 28, height: 28)
+            .help(isMultiSelectMode ? "退出多选模式" : "进入多选模式")
+            
+            // 批量复制按钮（仅在多选模式且有选中项时显示）
+            if isMultiSelectMode && !selectedItems.isEmpty {
+                // 使用本地变量存储选中数量
+                let selectedCount = selectedItems.count
+                Button(action: {
+                    copySelectedItems()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.on.doc.fill")
+                        Text("\(selectedCount)")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(.white)
+                }
+                .buttonStyle(EffectButtonStyle())
+                .frame(width: 46, height: 28)
+                // 使用本地变量构建提示文本
+                .help("复制选中的\(selectedCount)项")
+            }
+            
+            // 隐藏/显示搜索按钮
+            Button(action: {
+                withAnimation {
+                    isSearching.toggle()
+                }
+            }) {
+                Image(systemName: isSearching ? "eye.slash" : "magnifyingglass")
+                    .foregroundColor(.white)
+            }
+            .buttonStyle(EffectButtonStyle())
+            .frame(width: 28, height: 28)
+            .help(isSearching ? "隐藏搜索" : "显示搜索") // 添加悬停提示
+            
+            // 置顶按钮
+            Button(action: {
+                toggleWindowAlwaysOnTop()
+            }) {
+                Image(systemName: isWindowAlwaysOnTop ? "pin.circle.fill" : "pin.circle")
+                    .foregroundColor(isWindowAlwaysOnTop ? .yellow : .white)
+            }
+            .buttonStyle(EffectButtonStyle())
+            .frame(width: 28, height: 28)
+            .help("保持窗口在最前端") // 添加悬停提示
+            
+            // 设置按钮
+            Button(action: {
+                showSettingsMenu()
+            }) {
+                Image(systemName: "gearshape")
+                    .foregroundColor(.white)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 28, height: 28)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(height: searchBarHeight)
+    }
+    
+    // 分类标签栏
+    private var categoryTabBar: some View {
+        HStack(spacing: 0) {
+            // 标签按钮区域 - 使用ScrollView替代固定HStack
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {  // 减小间距
+                    // 全部按钮
+                    TabButtonFixed(title: "全部", isSelected: selectedTab == "全部") {
+                        selectedTab = "全部"
+                    }
+                    
+                    // 钉选按钮 - 修复为可点击的按钮并与其他标签保持一致
+                    Button(action: {
+                        selectedTab = "钉选"
+                    }) {
+                        HStack(spacing: 2) {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 9))
+                            Text("钉选")
+                                .font(.system(size: 12))
+                        }
+                        .foregroundColor(selectedTab == "钉选" ? .white : .gray)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(selectedTab == "钉选" ? Color.blue : Color.clear)
+                        .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // 其他标签按钮
+                    TabButtonFixed(title: "今天", isSelected: selectedTab == "今天") {
+                        selectedTab = "今天"
+                    }
+                    
+                    TabButtonFixed(title: "文本", isSelected: selectedTab == "文本") {
+                        selectedTab = "文本"
+                    }
+                    
+                    TabButtonFixed(title: "图像", isSelected: selectedTab == "图像") {
+                        selectedTab = "图像"
+                    }
+                    
+                    TabButtonFixed(title: "链接", isSelected: selectedTab == "链接") {
+                        selectedTab = "链接"
+                    }
+                    
+                    // 显示用户创建的分类
+                    // 将categories转换为数组，避免在循环中直接使用SwiftData查询结果
+                    let categoryArray = Array(categories)
+                    ForEach(0..<categoryArray.count, id: \.self) { index in
+                        let category = categoryArray[index]
+                        TabButtonFixed(title: category.name, isSelected: selectedTab == category.name) {
+                            selectedTab = category.name
+                        }
+                    }
+                }
+                .padding(.horizontal, 5)
+            }
+            
+            // 删除按钮
+            Button(action: {
+                openCategoryManagerWindow()
+            }) {
+                Image(systemName: "minus")
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .frame(width: 26, height: 26)
+                    .padding(.horizontal, 2)
+            }
+            .buttonStyle(.borderless)
+            
+            // 添加按钮，放在最右边
+            Menu {
+                Button(action: {
+                    openNormalListWindow()  // 使用新方法
+                }) {
+                    Text("创建普通列表")
+                }
+                
+                Button(action: {
+                    openSmartListWindow()  // 使用新方法
+                }) {
+                    Text("创建智能列表")
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .foregroundColor(.white)
+                    .font(.system(size: 14))
+                    .frame(width: 26, height: 26)
+                    .padding(.horizontal, 2)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .frame(height: tabBarHeight)
+        .background(Color(red: 0.12, green: 0.12, blue: 0.14))
+    }
+    
+    // 剪贴板内容视图
+    private var clipboardContentView: some View {
+        ZStack {
+            // 背景颜色，确保空白区域也是深色
+            Color(red: 0.1, green: 0.1, blue: 0.12)
+                .frame(height: contentHeight)
+            
+            if filteredClipboardItems.isEmpty {
+                // 无内容状态
+                VStack(spacing: 15) {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.system(size: 30))
+                        .foregroundColor(.gray)
+                    Text("暂无剪贴板历史")
+                        .foregroundColor(.gray)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // 根据视图模式选择适当的视图组件
+                contentViewForCurrentMode
+            }
+        }
+        .frame(height: contentHeight)
+    }
+    
+    // 根据当前视图模式选择内容视图
+    @ViewBuilder
+    private var contentViewForCurrentMode: some View {
+        switch viewMode {
+        case .simpleList:
+            simpleListView
+        case .richList:
+            richListView
+        case .gridView:
+            gridView
+        }
+    }
+    
+    // 简单列表视图
+    private var simpleListView: some View {
+        List {
+            ForEach(filteredClipboardItems) { item in
+                SimpleClipboardItemRow(item: item, 
+                                      isSelected: selectedItems.contains(item.id),
+                                      isMultiSelectMode: isMultiSelectMode,
+                                      selectedItems: selectedItems,
+                                      filteredItems: filteredClipboardItems,
+                                      onToggleSelection: toggleItemSelection,
+                                      onCopyItem: clipboardManager.copyToClipboard)
+            }
+        }
+        .listStyle(.plain)
+        .background(Color.clear)
+    }
+    
+    // 丰富列表视图
+    private var richListView: some View {
+        List {
+            ForEach(filteredClipboardItems) { item in
+                RichClipboardItemRow(item: item, 
+                                    isSelected: selectedItems.contains(item.id),
+                                    isMultiSelectMode: isMultiSelectMode,
+                                    selectedItems: selectedItems,
+                                    filteredItems: filteredClipboardItems,
+                                    onToggleSelection: toggleItemSelection,
+                                    onCopyItem: clipboardManager.copyToClipboard)
+            }
+        }
+        .listStyle(.plain)
+        .background(Color.clear)
+    }
+    
+    // 网格视图
+    private var gridView: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [
+                    GridItem(.fixed(130), spacing: 12),
+                    GridItem(.fixed(130), spacing: 12)
+                ],
+                spacing: 12
+            ) {
+                ForEach(filteredClipboardItems) { item in
+                    GridClipboardItemRow(item: item, 
+                                        isSelected: selectedItems.contains(item.id),
+                                        isMultiSelectMode: isMultiSelectMode,
+                                        selectedItems: selectedItems,
+                                        filteredItems: filteredClipboardItems,
+                                        onToggleSelection: toggleItemSelection,
+                                        onCopyItem: clipboardManager.copyToClipboard)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+    }
+    
+    // 底部操作栏
+    private var bottomActionBar: some View {
+        VStack(spacing: 0) {
+            // 项目计数和视图切换
+            HStack {
+                // 左侧视图切换按钮
+                Button(action: {
+                    showingViewModeMenu = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .foregroundColor(.white)
+                        
+                        Text(viewMode.rawValue)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showingViewModeMenu, arrowEdge: .bottom) {
+                    viewModePopover
+                }
+                
+                Spacer()
+                
+                // 项目计数
+                Text("\(filteredClipboardItems.count) 个项目")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                
+                Spacer()
+                
+                // 清除历史按钮
+                Button(action: {
+                    clipboardManager.clearHistory()
+                }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+        }
+    }
+    
+    // 视图模式选择弹出窗口
+    private var viewModePopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(ViewMode.allCases, id: \.self) { mode in
+                Button(action: {
+                    viewMode = mode
+                    showingViewModeMenu = false
+                }) {
+                    HStack {
+                        Image(systemName: mode.iconName)
+                        Text(mode.rawValue)
+                    }
+                    .foregroundColor(.white)
+                    .frame(minWidth: 120, alignment: .leading)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(viewMode == mode ? Color.blue.opacity(0.5) : Color.clear)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color(red: 0.15, green: 0.15, blue: 0.15))
+        .cornerRadius(8)
+        .padding(4)
     }
     
     // 设置通知监听
@@ -660,10 +744,13 @@ struct StatusBarMenuView: View {
     // 修改过滤逻辑，支持自定义分类
     private var filteredClipboardItems: [ClipboardContent] {
         let items = clipboardManager.searchHistory(query: searchText)
-        
-        // 根据选择的标签过滤
+        return filterItemsByCategory(items, category: selectedTab)
+    }
+    
+    // 根据分类过滤项目
+    private func filterItemsByCategory(_ items: [ClipboardContent], category: String) -> [ClipboardContent] {
         return items.filter { item in
-            switch selectedTab {
+            switch category {
             case "钉选":
                 return item.isPinned
             case "今天":
@@ -682,7 +769,7 @@ struct StatusBarMenuView: View {
                 return true
             default:
                 // 对于自定义分类，根据分类名称过滤
-                if let category = item.category, category == selectedTab {
+                if let itemCategory = item.category, itemCategory == category {
                     return true
                 }
                 return false
@@ -1000,6 +1087,200 @@ struct StatusBarMenuView: View {
         // 保持窗口引用以防止过早释放
         FishCopyApp.activeWindows.append(dbViewerWindow)
     }
+    
+    // 切换多选模式
+    private func toggleMultiSelectMode() {
+        withAnimation {
+            isMultiSelectMode.toggle()
+            if !isMultiSelectMode {
+                // 退出多选模式时清空选择
+                selectedItems.removeAll()
+            }
+        }
+    }
+    
+    // 切换项目选择状态
+    private func toggleItemSelection(_ item: ClipboardContent) {
+        if selectedItems.contains(item.id) {
+            selectedItems.remove(item.id)
+        } else {
+            selectedItems.insert(item.id)
+        }
+    }
+    
+    // 复制选中的多个项目
+    private func copySelectedItems() {
+        let itemsToCopy = filteredClipboardItems.filter { selectedItems.contains($0.id) }
+        if !itemsToCopy.isEmpty {
+            clipboardManager.copyMultipleToClipboard(itemsToCopy)
+            
+            // 显示成功提示
+            let notification = NSUserNotification()
+            notification.title = "已复制"
+            notification.informativeText = "已复制\(itemsToCopy.count)个项目到剪贴板"
+            NSUserNotificationCenter.default.deliver(notification)
+            
+            // 如果配置为复制后退出多选模式
+            //toggleMultiSelectMode()
+        }
+    }
+    
+    // MARK: - 行项目组件
+    
+    // 简单样式的行项目
+    private struct SimpleClipboardItemRow: View {
+        let item: ClipboardContent
+        let isSelected: Bool
+        let isMultiSelectMode: Bool
+        let selectedItems: Set<UUID>
+        let filteredItems: [ClipboardContent]
+        let onToggleSelection: (ClipboardContent) -> Void
+        let onCopyItem: (ClipboardContent) -> Void
+        
+        @EnvironmentObject var clipboardManager: ClipboardManager
+        
+        var body: some View {
+            ClipboardItemView(item: item, isSelected: isSelected)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .listRowBackground(Color.clear)
+                .clipboardItemContextMenu(item: item)
+                .contentShape(Rectangle())
+                .gesture(
+                    TapGesture()
+                        .modifiers(.command)
+                        .onEnded { _ in
+                            onToggleSelection(item)
+                        }
+                )
+                .onTapGesture {
+                    if isMultiSelectMode {
+                        onToggleSelection(item)
+                    } else {
+                        onCopyItem(item)
+                    }
+                }
+                .onDrag {
+                    createDragItemProvider(for: item)
+                }
+        }
+        
+        // 创建拖拽内容提供程序
+        private func createDragItemProvider(for item: ClipboardContent) -> NSItemProvider {
+            if isMultiSelectMode && selectedItems.contains(item.id) {
+                // 处理多选拖拽
+                let selectedContentItems = selectedItems.compactMap { id -> ClipboardContent? in
+                    return filteredItems.first { $0.id == id }
+                }
+                return clipboardManager.createMultiItemsProvider(from: selectedContentItems)
+            } else {
+                // 处理单项拖拽
+                return clipboardManager.createItemProvider(from: item)
+            }
+        }
+    }
+    
+    // 丰富样式的行项目
+    private struct RichClipboardItemRow: View {
+        let item: ClipboardContent
+        let isSelected: Bool
+        let isMultiSelectMode: Bool
+        let selectedItems: Set<UUID>
+        let filteredItems: [ClipboardContent]
+        let onToggleSelection: (ClipboardContent) -> Void
+        let onCopyItem: (ClipboardContent) -> Void
+        
+        @EnvironmentObject var clipboardManager: ClipboardManager
+        
+        var body: some View {
+            RichClipboardItemView(item: item, isSelected: isSelected)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .listRowBackground(Color.clear)
+                .clipboardItemContextMenu(item: item)
+                .contentShape(Rectangle())
+                .gesture(
+                    TapGesture()
+                        .modifiers(.command)
+                        .onEnded { _ in
+                            onToggleSelection(item)
+                        }
+                )
+                .onTapGesture {
+                    if isMultiSelectMode {
+                        onToggleSelection(item)
+                    } else {
+                        onCopyItem(item)
+                    }
+                }
+                .onDrag {
+                    createDragItemProvider(for: item)
+                }
+        }
+        
+        // 创建拖拽内容提供程序
+        private func createDragItemProvider(for item: ClipboardContent) -> NSItemProvider {
+            if isMultiSelectMode && selectedItems.contains(item.id) {
+                // 处理多选拖拽
+                let selectedContentItems = selectedItems.compactMap { id -> ClipboardContent? in
+                    return filteredItems.first { $0.id == id }
+                }
+                return clipboardManager.createMultiItemsProvider(from: selectedContentItems)
+            } else {
+                // 处理单项拖拽
+                return clipboardManager.createItemProvider(from: item)
+            }
+        }
+    }
+    
+    // 网格样式的行项目
+    private struct GridClipboardItemRow: View {
+        let item: ClipboardContent
+        let isSelected: Bool
+        let isMultiSelectMode: Bool
+        let selectedItems: Set<UUID>
+        let filteredItems: [ClipboardContent]
+        let onToggleSelection: (ClipboardContent) -> Void
+        let onCopyItem: (ClipboardContent) -> Void
+        
+        @EnvironmentObject var clipboardManager: ClipboardManager
+        
+        var body: some View {
+            GridClipboardItemView(item: item, isSelected: isSelected)
+                .frame(width: 130, height: 130)
+                .clipboardItemContextMenu(item: item)
+                .contentShape(Rectangle())
+                .gesture(
+                    TapGesture()
+                        .modifiers(.command)
+                        .onEnded { _ in
+                            onToggleSelection(item)
+                        }
+                )
+                .onTapGesture {
+                    if isMultiSelectMode {
+                        onToggleSelection(item)
+                    } else {
+                        onCopyItem(item)
+                    }
+                }
+                .onDrag {
+                    createDragItemProvider(for: item)
+                }
+        }
+        
+        // 创建拖拽内容提供程序
+        private func createDragItemProvider(for item: ClipboardContent) -> NSItemProvider {
+            if isMultiSelectMode && selectedItems.contains(item.id) {
+                // 处理多选拖拽
+                let selectedContentItems = selectedItems.compactMap { id -> ClipboardContent? in
+                    return filteredItems.first { $0.id == id }
+                }
+                return clipboardManager.createMultiItemsProvider(from: selectedContentItems)
+            } else {
+                // 处理单项拖拽
+                return clipboardManager.createItemProvider(from: item)
+            }
+        }
+    }
 }
 
 // 固定大小的标签按钮 - 更轻量和紧凑
@@ -1030,16 +1311,25 @@ struct TabButtonFixed: View {
     }
 }
 
-// 优化的剪贴板项目视图 - 更新右键菜单
+// 修改ClipboardItemView以支持选中状态
 struct ClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
+    let isSelected: Bool
     
     var body: some View {
         HStack(spacing: 12) {
-            // 内容类型图标
-            contentTypeIcon
-                .frame(width: 24, height: 24)
+            // 选中状态指示器（多选模式下显示）
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 16))
+                    .frame(width: 24, height: 24)
+            } else {
+                // 内容类型图标
+                contentTypeIcon
+                    .frame(width: 24, height: 24)
+            }
             
             // 内容预览
             Text(getPreviewText())
@@ -1067,6 +1357,7 @@ struct ClipboardItemView: View {
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
+        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
     }
     
@@ -1125,12 +1416,21 @@ struct ClipboardItemView: View {
 struct RichClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
+    let isSelected: Bool
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                contentTypeIcon
-                    .frame(width: 24, height: 24)
+                // 选中状态指示器或内容类型图标
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 16))
+                        .frame(width: 24, height: 24)
+                } else {
+                    contentTypeIcon
+                        .frame(width: 24, height: 24)
+                }
                 
                 Text(getPreviewText())
                     .fontWeight(.medium)
@@ -1172,38 +1472,11 @@ struct RichClipboardItemView: View {
                     Spacer()
                 }
                 .padding(.top, 4)
-            } else if item.imageCount > 1, let images = item.images {
-                // 显示多张图片的预览
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(0..<min(images.count, 3), id: \.self) { index in
-                            Image(nsImage: images[index])
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 60, height: 60)
-                                .cornerRadius(4)
-                                .clipped()
-                        }
-                        
-                        if images.count > 3 {
-                            ZStack {
-                                Rectangle()
-                                    .fill(Color.gray.opacity(0.3))
-                                    .frame(width: 60, height: 60)
-                                    .cornerRadius(4)
-                                
-                                Text("+\(images.count - 3)")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 14, weight: .bold))
-                            }
-                        }
-                    }
-                    .padding(.top, 4)
-                }
             }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
+        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
     }
     
@@ -1261,6 +1534,7 @@ struct RichClipboardItemView: View {
 struct GridClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
+    let isSelected: Bool
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1280,19 +1554,11 @@ struct GridClipboardItemView: View {
                         .clipped()
                 } else if item.imageCount > 1, let images = item.images {
                     // 多图片网格布局
-                    VStack(spacing: 2) {
+                    VStack(alignment: .center) {
                         HStack(spacing: 2) {
-                            if images.count > 0 {
-                                Image(nsImage: images[0])
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 64, height: 54)
-                                    .cornerRadius(4)
-                                    .clipped()
-                            }
-                            
-                            if images.count > 1 {
-                                Image(nsImage: images[1])
+                            // 显示前4张图片
+                            ForEach(0..<min(2, images.count), id: \.self) { index in
+                                Image(nsImage: images[index])
                                     .resizable()
                                     .scaledToFill()
                                     .frame(width: 64, height: 54)
@@ -1301,89 +1567,74 @@ struct GridClipboardItemView: View {
                             }
                         }
                         
-                        HStack(spacing: 2) {
-                            if images.count > 2 {
-                                Image(nsImage: images[2])
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 64, height: 54)
-                                    .cornerRadius(4)
-                                    .clipped()
-                            } else if images.count == 2 {
-                                Rectangle()
-                                    .fill(Color(white: 0.2))
-                                    .frame(width: 64, height: 54)
-                                    .cornerRadius(4)
-                            }
-                            
-                            if images.count > 3 {
-                                ZStack {
-                                    Image(nsImage: images[3])
+                        if images.count > 2 {
+                            HStack(spacing: 2) {
+                                ForEach(2..<min(4, images.count), id: \.self) { index in
+                                    Image(nsImage: images[index])
                                         .resizable()
                                         .scaledToFill()
                                         .frame(width: 64, height: 54)
                                         .cornerRadius(4)
                                         .clipped()
-                                        .blur(radius: images.count > 4 ? 2 : 0)
-                                    
-                                    if images.count > 4 {
-                                        Text("+\(images.count - 4)")
-                                            .foregroundColor(.white)
-                                            .font(.system(size: 16, weight: .bold))
-                                            .shadow(radius: 2)
-                                    }
                                 }
-                            } else if images.count <= 3 {
-                                Rectangle()
-                                    .fill(Color(white: 0.2))
-                                    .frame(width: 64, height: 54)
-                                    .cornerRadius(4)
+                                
+                                if images.count == 3 {
+                                    Rectangle()
+                                        .fill(Color.clear)
+                                        .frame(width: 64, height: 54)
+                                }
                             }
                         }
                     }
                     .frame(width: 130, height: 110)
-                } else {
-                    contentPreview
-                        .frame(width: 130, height: 110)
+                } else if let text = item.text {
+                    // 文本内容预览
+                    VStack {
+                        Text(text)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                            .lineLimit(6)
+                            .padding(8)
+                    }
+                    .frame(width: 130, height: 110, alignment: .topLeading)
                 }
                 
-                // 类型指示器和图片计数
-                VStack {
-                    HStack {
-                        if item.imageCount > 1 {
-                            Text("\(item.imageCount)")
-                                .foregroundColor(.white)
-                                .font(.system(size: 10))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 2)
-                                .background(Color.blue.opacity(0.7))
-                                .cornerRadius(4)
-                        }
+                // 选中状态覆盖层
+                if isSelected {
+                    ZStack {
+                        Color.blue.opacity(0.3)
                         
-                        Spacer()
-                        contentTypeIcon
-                            .frame(width: 16, height: 16)
-                            .padding(2)
-                            .background(Color.black.opacity(0.5))
-                            .cornerRadius(4)
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(.white)
                     }
-                    Spacer()
+                    .cornerRadius(6)
                 }
-                .padding(2)
             }
             
-            // 时间戳
-            Text(item.timestamp, style: .time)
-                .font(.system(size: 10))
-                .foregroundColor(.gray)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
+            // 底部信息
+            HStack(spacing: 4) {
+                contentTypeIcon
+                    .font(.system(size: 12))
+                    .foregroundColor(.white)
+                    .frame(width: 16, height: 16)
+                
+                if let text = item.text, text.count > 15 {
+                    Text(text.prefix(15) + "...")
+                        .font(.system(size: 9))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.top, 4)
         }
-        .background(Color(white: 0.15))
-        .cornerRadius(8)
-        .frame(width: 130, height: 130)
         .contentShape(Rectangle())
+        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+        )
     }
     
     // 内容类型图标 - 移出闭包
@@ -1416,41 +1667,6 @@ struct GridClipboardItemView: View {
             } else {
                 // 未知类型
                 Image(systemName: "questionmark.square")
-                    .foregroundColor(.gray)
-            }
-        }
-    }
-    
-    // 内容预览 - 移出闭包
-    var contentPreview: some View {
-        Group {
-            if let text = item.text {
-                VStack(alignment: .leading) {
-                    Text(text)
-                        .font(.system(size: 12))
-                        .foregroundColor(.white)
-                        .lineLimit(4)
-                        .multilineTextAlignment(.leading)
-                }
-                .padding(8)
-            } else if let urls = item.fileURLs, !urls.isEmpty {
-                VStack(alignment: .leading) {
-                    ForEach(urls.prefix(2), id: \.self) { url in
-                        Text(url.lastPathComponent)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                    }
-                    
-                    if urls.count > 2 {
-                        Text("还有\(urls.count - 2)个文件...")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding(8)
-            } else {
-                Text("未知内容")
                     .foregroundColor(.gray)
             }
         }
