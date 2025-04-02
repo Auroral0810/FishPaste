@@ -54,7 +54,7 @@ struct CategoryManagerView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 默认分类列表（不可删除）
-            GroupBox(label: Text("默认分类").font(.headline)) {
+            GroupBox(label: Text("默认分类").font(.headline).fontWeight(.bold)) {
                 VStack(spacing: 0) {
                     ForEach(defaultCategories, id: \.self) { category in
                         HStack {
@@ -64,24 +64,25 @@ struct CategoryManagerView: View {
                             
                             Text(category)
                                 .foregroundColor(.primary)
+                                .fontWeight(.medium)
                             
                             Spacer()
                             
                             Image(systemName: "lock.fill")
                                 .foregroundColor(.secondary)
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 10)
                         
                         if category != defaultCategories.last {
                             Divider()
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 6)
             }
             .padding(.horizontal)
-            .padding(.top)
+            .padding(.top, 12)
             
             // 自定义分类列表（可排序、删除）
             GroupBox {
@@ -89,6 +90,7 @@ struct CategoryManagerView: View {
                     HStack {
                         Text("自定义分类")
                             .font(.headline)
+                            .fontWeight(.bold)
                         
                         if customCategories.isEmpty {
                             Text("(无自定义分类)")
@@ -100,14 +102,25 @@ struct CategoryManagerView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 10)
                     
                     if customCategories.isEmpty {
-                        Text("您还没有创建任何自定义分类")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 20)
+                        VStack(spacing: 16) {
+                            Image(systemName: "folder.badge.plus")
+                                .font(.system(size: 40))
+                                .foregroundColor(.secondary)
+                            
+                            Text("您还没有创建任何自定义分类")
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            
+                            Text("可以通过点击右上角的\"+\"按钮添加新分类")
+                                .font(.caption)
+                                .foregroundColor(.secondary.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 40)
                     } else {
                         // 使用ScrollView固定高度且允许滚动
                         ScrollView {
@@ -120,14 +133,15 @@ struct CategoryManagerView: View {
                                         
                                         Text(category.name)
                                             .foregroundColor(.primary)
+                                            .fontWeight(.medium)
                                         
                                         Spacer()
                                         
                                         // 拖动图标提示
                                         Image(systemName: "line.3.horizontal")
                                             .foregroundColor(.secondary)
-                                            .font(.system(size: 12))
-                                            .padding(.trailing, 6)
+                                            .font(.system(size: 14))
+                                            .padding(.trailing, 8)
                                         
                                         // 删除按钮
                                         Button(action: {
@@ -136,12 +150,12 @@ struct CategoryManagerView: View {
                                         }) {
                                             Image(systemName: "trash")
                                                 .foregroundColor(.red)
-                                                .font(.system(size: 12))
+                                                .font(.system(size: 14))
                                         }
                                         .buttonStyle(.plain)
                                     }
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 8)
                                     .contentShape(Rectangle())
                                     .background(Color.clear)
                                     .onDrag {
@@ -152,14 +166,15 @@ struct CategoryManagerView: View {
                                     
                                     if category != customCategories.last {
                                         Divider()
+                                            .padding(.horizontal, 4) // 增加分隔线的水平间距
                                     }
                                 }
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 6) // 稍微增加垂直内边距
                         }
-                        .frame(maxHeight: 180) // 固定最大高度
+                        .frame(maxHeight: 350)
                         .background(Color(NSColor.textBackgroundColor).opacity(0.2))
-                        .cornerRadius(4)
+                        .cornerRadius(6) // 增加圆角半径
                         .onDrop(of: [UTType.plainText], delegate: CategoryDropDelegate(
                             categories: customCategories,
                             draggingItem: $draggingItem,
@@ -170,7 +185,7 @@ struct CategoryManagerView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, 16)
+            .padding(.bottom, 20)
             
             // 底部按钮 - 确保保存按钮可见
             HStack {
@@ -192,7 +207,7 @@ struct CategoryManagerView: View {
             .padding(.horizontal)
             .padding(.bottom)
         }
-        .frame(width: 400, height: 400)
+        .frame(width: 500, height: 550)
         .alert(isPresented: $showDeleteAlert) {
             Alert(
                 title: Text("删除分类"),
