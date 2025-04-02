@@ -59,7 +59,24 @@ final class ClipboardItem {
     @Attribute(.unique) var id: UUID
     var textContent: String?
     var imageData: Data?
-    var fileURLStrings: [String]?
+    // 将fileURLStrings改为计算属性
+    var fileURLStrings: [String]? {
+        get {
+            if let urlsString = fileURLsString, !urlsString.isEmpty {
+                return urlsString.components(separatedBy: "|||")
+            }
+            return nil
+        }
+        set {
+            if let newValue = newValue, !newValue.isEmpty {
+                self.fileURLsString = newValue.joined(separator: "|||")
+            } else {
+                self.fileURLsString = nil
+            }
+        }
+    }
+    // 用于存储URL的替代字段，将多个URL合并为单个字符串，用分隔符分隔
+    var fileURLsString: String?
     var timestamp: Date
     var category: String?
     var isPinned: Bool
@@ -70,10 +87,41 @@ final class ClipboardItem {
         self.id = id
         self.textContent = textContent
         self.imageData = imageData
-        self.fileURLStrings = fileURLStrings
         self.timestamp = timestamp
         self.category = category
         self.isPinned = isPinned
+        
+        // 安全地设置fileURLsString，避免空数组造成问题
+        if let urls = fileURLStrings, !urls.isEmpty {
+            self.fileURLsString = urls.joined(separator: "|||")
+        } else {
+            self.fileURLsString = nil
+        }
+    }
+    
+    // 将模型转换为通用剪贴板内容对象 - 添加此方法以便于应用中使用
+    func toClipboardContent() -> ClipboardContent {
+        // 从Data创建图像
+        var image: NSImage? = nil
+        if let imgData = imageData {
+            image = NSImage(data: imgData)
+        }
+        
+        // 从字符串数组创建URL数组
+        var urls: [URL]? = nil
+        if let urlStrings = fileURLStrings {
+            urls = urlStrings.compactMap { URL(string: $0) }
+        }
+        
+        return ClipboardContent(
+            id: id,
+            text: textContent,
+            image: image,
+            fileURLs: urls,
+            category: category,
+            timestamp: timestamp,
+            isPinned: isPinned
+        )
     }
 }
 

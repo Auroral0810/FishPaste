@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import SwiftData  // 添加SwiftData导入
+import AppKit  // 添加AppKit导入以使用NSWindow
 
 // 视图模式枚举 - 加入到结构体外部，便于复用
 enum ViewMode: String, CaseIterable {
@@ -24,6 +26,8 @@ enum ViewMode: String, CaseIterable {
 
 struct StatusBarMenuView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
+    @Environment(\.modelContext) private var modelContext  // 添加modelContext
+    @Query var categories: [ClipboardCategory]  // 查询所有分类
     @State private var searchText = ""
     @State private var selectedTab = "全部" // 默认选中"全部"标签
     
@@ -31,6 +35,9 @@ struct StatusBarMenuView: View {
     @State private var showingNormalListSheet = false
     @State private var showingSmartListSheet = false
     @State private var newListName = ""
+    
+    // 保持窗口强引用以防止过早释放
+    @State private var activeWindows: [NSWindow] = []
     
     // 固定高度常量
     private let searchBarHeight: CGFloat = 44
@@ -83,59 +90,71 @@ struct StatusBarMenuView: View {
             .padding(.vertical, 5)
             .frame(height: searchBarHeight)
             
-            // 标签栏区域 - 使用全宽HStack确保布局
+            // 标签栏区域 - 使用可滚动布局
             HStack(spacing: 0) {
-                // 标签按钮区域 - 使用HStack而不是ScrollView
-                HStack(spacing: 2) {  // 减小间距
-                    // 全部按钮
-                    TabButtonFixed(title: "全部", isSelected: selectedTab == "全部") {
-                        selectedTab = "全部"
-                    }
-                    
-                    // 钉选按钮 - 修复为可点击的按钮
-                    Button(action: {
-                        selectedTab = "钉选"
-                    }) {
-                        Image(systemName: "pin.fill")
-                            .foregroundColor(.red)
-                            .font(.system(size: 12))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
+                // 标签按钮区域 - 使用ScrollView替代固定HStack
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {  // 减小间距
+                        // 全部按钮
+                        TabButtonFixed(title: "全部", isSelected: selectedTab == "全部") {
+                            selectedTab = "全部"
+                        }
+                        
+                        // 钉选按钮 - 修复为可点击的按钮并与其他标签保持一致
+                        Button(action: {
+                            selectedTab = "钉选"
+                        }) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "pin.fill")
+                                    .font(.system(size: 9))
+                                Text("钉选")
+                                    .font(.system(size: 12))
+                            }
+                            .foregroundColor(selectedTab == "钉选" ? .white : .gray)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
                             .background(selectedTab == "钉选" ? Color.blue : Color.clear)
                             .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // 其他标签按钮
+                        TabButtonFixed(title: "今天", isSelected: selectedTab == "今天") {
+                            selectedTab = "今天"
+                        }
+                        
+                        TabButtonFixed(title: "文本", isSelected: selectedTab == "文本") {
+                            selectedTab = "文本"
+                        }
+                        
+                        TabButtonFixed(title: "图像", isSelected: selectedTab == "图像") {
+                            selectedTab = "图像"
+                        }
+                        
+                        TabButtonFixed(title: "链接", isSelected: selectedTab == "链接") {
+                            selectedTab = "链接"
+                        }
+                        
+                        // 显示用户创建的分类
+                        ForEach(categories) { category in
+                            TabButtonFixed(title: category.name, isSelected: selectedTab == category.name) {
+                                selectedTab = category.name
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    
-                    // 其他标签按钮
-                    TabButtonFixed(title: "今天", isSelected: selectedTab == "今天") {
-                        selectedTab = "今天"
-                    }
-                    
-                    TabButtonFixed(title: "文本", isSelected: selectedTab == "文本") {
-                        selectedTab = "文本"
-                    }
-                    
-                    TabButtonFixed(title: "图像", isSelected: selectedTab == "图像") {
-                        selectedTab = "图像"
-                    }
-                    
-                    TabButtonFixed(title: "链接", isSelected: selectedTab == "链接") {
-                        selectedTab = "链接"
-                    }
+                    .padding(.horizontal, 5)
                 }
-                
-                Spacer(minLength: 0)
                 
                 // 添加按钮，放在最右边
                 Menu {
                     Button(action: {
-                        showingNormalListSheet = true
+                        openNormalListWindow()  // 使用新方法
                     }) {
                         Text("创建普通列表")
                     }
                     
                     Button(action: {
-                        showingSmartListSheet = true
+                        openSmartListWindow()  // 使用新方法
                     }) {
                         Text("创建智能列表")
                     }
@@ -144,11 +163,11 @@ struct StatusBarMenuView: View {
                         .foregroundColor(.white)
                         .font(.system(size: 14))
                         .frame(width: 26, height: 26)
+                        .padding(.horizontal, 5)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
             }
-            .padding(.horizontal, 5)
             .frame(height: tabBarHeight)
             .background(Color(red: 0.12, green: 0.12, blue: 0.14))
             
@@ -304,23 +323,140 @@ struct StatusBarMenuView: View {
             .background(Color(red: 0.1, green: 0.1, blue: 0.12))
         }
         .background(Color(red: 0.1, green: 0.1, blue: 0.12)) // 深色背景
-        .sheet(isPresented: $showingNormalListSheet) {
-            CreateListView(title: "创建普通列表", listName: $newListName, onSave: {
-                // 保存普通列表的逻辑
-                print("创建普通列表: \(newListName)")
-                showingNormalListSheet = false
-            })
-        }
-        .sheet(isPresented: $showingSmartListSheet) {
-            CreateSmartListView(listName: $newListName, onSave: {
-                // 保存智能列表的逻辑
-                print("创建智能列表: \(newListName)")
-                showingSmartListSheet = false
-            })
+        .onAppear {
+            // 将modelContext传递给clipboardManager
+            clipboardManager.setModelContext(modelContext)
         }
     }
     
-    // 根据选择的标签和搜索文本过滤剪贴板项目
+    // 替换原有的sheet方法，使用NSWindow替代
+    private func openNormalListWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "创建普通列表"
+        
+        // 添加窗口关闭回调，在关闭时从activeWindows中移除
+        window.isReleasedWhenClosed = false
+        
+        // 点击保存时的逻辑
+        let contentView = CreateListView(
+            title: "请输入新列表的名字",
+            listName: $newListName,
+            onSave: {
+                // 安全检查
+                if self.newListName.isEmpty {
+                    self.closeWindow(window)
+                    return
+                }
+                
+                // 创建一个全新的分类对象
+                let newCategory = ClipboardCategory(name: self.newListName)
+                
+                // 使用异常处理安全地插入到数据库
+                do {
+                    // 插入到数据库
+                    self.modelContext.insert(newCategory)
+                    
+                    // 立即尝试保存上下文变更
+                    try self.modelContext.save()
+                    
+                    // 切换到新创建的分类
+                    self.selectedTab = self.newListName
+                    
+                    print("成功创建新分类: \(self.newListName)")
+                } catch {
+                    print("创建分类时出错: \(error.localizedDescription)")
+                }
+                
+                // 重置输入并关闭窗口
+                self.newListName = ""
+                self.closeWindow(window)
+            }
+        )
+        .environment(\.colorScheme, .dark)
+        
+        // 保留对rootView的引用，防止内存回收
+        let hostingView = NSHostingView(rootView: contentView)
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用以防止过早释放
+        activeWindows.append(window)
+    }
+    
+    // 添加智能列表窗口方法
+    private func openSmartListWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "创建智能列表"
+        
+        // 添加窗口关闭回调，在关闭时从activeWindows中移除
+        window.isReleasedWhenClosed = false
+        
+        // 点击保存时的逻辑
+        let contentView = CreateSmartListView(
+            listName: $newListName,
+            onSave: {
+                // 安全检查
+                if self.newListName.isEmpty {
+                    self.closeWindow(window)
+                    return
+                }
+                
+                // 创建一个全新的分类对象
+                let newCategory = ClipboardCategory(name: self.newListName)
+                
+                // 使用异常处理安全地插入到数据库
+                do {
+                    // 插入到数据库
+                    self.modelContext.insert(newCategory)
+                    
+                    // 立即尝试保存上下文变更
+                    try self.modelContext.save()
+                    
+                    // 切换到新创建的分类
+                    self.selectedTab = self.newListName
+                    
+                    print("成功创建新智能分类: \(self.newListName)")
+                } catch {
+                    print("创建智能分类时出错: \(error.localizedDescription)")
+                }
+                
+                // 重置输入并关闭窗口
+                self.newListName = ""
+                self.closeWindow(window)
+            }
+        )
+        .environment(\.colorScheme, .dark)
+        
+        // 保留对rootView的引用，防止内存回收
+        let hostingView = NSHostingView(rootView: contentView)
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用以防止过早释放
+        activeWindows.append(window)
+    }
+    
+    // 辅助方法：安全地关闭窗口并从activeWindows中移除
+    private func closeWindow(_ window: NSWindow) {
+        window.close()
+        activeWindows.removeAll { $0 === window }
+    }
+    
+    // 修改过滤逻辑，支持自定义分类
     private var filteredClipboardItems: [ClipboardContent] {
         let items = clipboardManager.searchHistory(query: searchText)
         
@@ -341,8 +477,14 @@ struct StatusBarMenuView: View {
                     return true
                 }
                 return false
-            default: // "全部"
+            case "全部":
                 return true
+            default:
+                // 对于自定义分类，根据分类名称过滤
+                if let category = item.category, category == selectedTab {
+                    return true
+                }
+                return false
             }
         }
     }
@@ -354,13 +496,21 @@ struct TabButtonFixed: View {
     let isSelected: Bool
     let action: () -> Void
     
+    // 计算处理后的标题，限制长度
+    private var displayTitle: String {
+        if title.count > 8 {
+            return String(title.prefix(5)) + "..."
+        }
+        return title
+    }
+    
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 13)) // 更小的字体
+            Text(displayTitle)
+                .font(.system(size: 12)) // 更小的字体
                 .foregroundColor(isSelected ? .white : .gray)
-                .padding(.horizontal, 10) // 减小水平内边距
-                .padding(.vertical, 5) // 减小垂直内边距
+                .padding(.horizontal, 8) // 减小水平内边距
+                .padding(.vertical, 4) // 减小垂直内边距
                 .background(isSelected ? Color.blue : Color.clear)
                 .cornerRadius(4) // 较小的圆角
         }

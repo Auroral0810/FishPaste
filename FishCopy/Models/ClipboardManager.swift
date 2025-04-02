@@ -8,6 +8,7 @@
 import SwiftUI
 import Combine
 import SwiftData
+import AppKit
 
 // 剪贴板管理器：负责监控系统剪贴板变化和管理历史记录
 class ClipboardManager: ObservableObject {
@@ -22,6 +23,9 @@ class ClipboardManager: ObservableObject {
     // 监控间隔（秒）
     @AppStorage("monitoringInterval") var monitoringInterval: Double = 0.5
     
+    // SwiftData模型上下文
+    private var modelContext: ModelContext?
+    
     // 定时器用于定期检查剪贴板
     private var timer: Timer?
     // 当前剪贴板数据的校验和，用于检测变化
@@ -31,8 +35,53 @@ class ClipboardManager: ObservableObject {
         // 启动剪贴板监控
         startMonitoring()
         
-        // 加载测试数据
+        // 加载测试数据（当真实数据库连接后可以移除）
         loadDemoData()
+    }
+    
+    // 设置模型上下文
+    func setModelContext(_ context: ModelContext) {
+        print("设置ModelContext: \(context)")
+        self.modelContext = context
+        
+        // 等待主线程队列执行完毕后再加载数据，确保UI初始化完成
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            // 在设置上下文后尝试加载保存的数据
+            self.loadSavedClipboardItems()
+        }
+    }
+    
+    // 从数据库加载保存的剪贴板项目
+    private func loadSavedClipboardItems() {
+        guard let modelContext = modelContext else {
+            print("警告: 无法加载保存的剪贴板项目，模型上下文未初始化")
+            return
+        }
+        
+        do {
+            let descriptor = FetchDescriptor<ClipboardItem>(
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            let savedItems = try modelContext.fetch(descriptor)
+            
+            if !savedItems.isEmpty {
+                print("从数据库加载了 \(savedItems.count) 个剪贴板项目")
+                
+                // 清除演示数据并加载实际保存的数据
+                clipboardHistory.removeAll()
+                
+                // 将保存的项目转换为ClipboardContent对象并添加到历史记录
+                for item in savedItems {
+                    let content = item.toClipboardContent()
+                    clipboardHistory.append(content)
+                }
+            } else {
+                print("数据库中没有保存的剪贴板项目")
+            }
+        } catch {
+            print("加载保存的剪贴板项目时出错: \(error.localizedDescription)")
+        }
     }
     
     // 临时加载一些演示数据
@@ -176,27 +225,48 @@ class ClipboardManager: ObservableObject {
         let content = ClipboardContent(id: UUID())
         var hasContent = false
         
-        // 检查文本
+        // 安全地检查文本
         if let text = pasteboard.string(forType: .string) {
             content.text = text
             hasContent = true
         }
         
-        // 检查图片
+        // 安全地检查图片，使用PNG格式而非TIFF以提高兼容性
         if let image = NSImage(pasteboard: pasteboard) {
-            content.image = image
-            hasContent = true
+            // 创建深拷贝以避免共享内存和引用问题
+            if let tiffData = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]),
+               let newImage = NSImage(data: pngData) {
+                content.image = newImage
+                hasContent = true
+            }
         }
         
-        // 检查文件URL
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty {
-            content.fileURLs = urls
-            hasContent = true
+        // 安全地检查文件URL
+        do {
+            // 使用更安全的选项配置
+            let options: [NSPasteboard.ReadingOptionKey: Any] = [
+                .urlReadingContentsConformToTypes: ["public.item"],
+                .urlReadingFileURLsOnly: true
+            ]
+            
+            if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL], !urls.isEmpty {
+                // 创建URL的深拷贝
+                let safeURLs = urls.compactMap { URL(string: $0.absoluteString) }
+                if !safeURLs.isEmpty {
+                    content.fileURLs = safeURLs
+                    hasContent = true
+                }
+            }
+        } catch {
+            print("读取剪贴板URL时出错: \(error.localizedDescription)")
         }
         
         // 如果有内容，则更新当前剪贴板内容并添加到历史记录
         if hasContent {
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 self.currentClipboardContent = content
                 // 避免重复添加相同内容
                 if !self.clipboardHistory.contains(where: { $0.isEqual(to: content) }) {
@@ -210,7 +280,43 @@ class ClipboardManager: ObservableObject {
     
     // 保存剪贴板内容到数据库
     private func saveToDatabase(_ content: ClipboardContent) {
-        // 数据库保存逻辑（稍后实现）
+        guard let modelContext = modelContext else { 
+            print("警告: 模型上下文未初始化，数据未保存") 
+            return 
+        }
+        
+        // 安全处理图像数据
+        var imageData: Data? = nil
+        if let image = content.image {
+            // 尝试获取更可靠的PNG表示而非TIFF
+            if let tiffData = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                imageData = pngData
+            }
+        }
+        
+        // 将ClipboardContent转换为可存储的ClipboardItem
+        let clipboardItem = ClipboardItem(
+            id: content.id,
+            textContent: content.text,
+            imageData: imageData,
+            fileURLStrings: content.fileURLs?.map { $0.absoluteString },
+            category: content.category,
+            timestamp: content.timestamp,
+            isPinned: content.isPinned
+        )
+        
+        // 保存到数据库
+        modelContext.insert(clipboardItem)
+        
+        // 尝试立即保存更改
+        do {
+            try modelContext.save()
+            print("成功保存剪贴板项到数据库")
+        } catch {
+            print("错误: 保存数据时出错: \(error.localizedDescription)")
+        }
     }
     
     // 从剪贴板历史中复制项目到当前剪贴板
@@ -218,33 +324,113 @@ class ClipboardManager: ObservableObject {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         
-        // 复制文本
+        var success = false
+        
+        // 安全地复制文本
         if let text = content.text {
-            pasteboard.setString(text, forType: .string)
+            success = pasteboard.setString(text, forType: .string)
+            if !success {
+                print("警告: 无法复制文本到剪贴板")
+            }
         }
         
-        // 复制图片
+        // 安全地复制图片
         if let image = content.image {
-            pasteboard.writeObjects([image])
+            do {
+                // 使用PNG表示而非直接写入NSImage对象
+                if let tiffData = image.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]) {
+                    
+                    // 创建一个新的NSImage用于写入
+                    let safeImage = NSImage(data: pngData)
+                    if let safeImage = safeImage {
+                        success = pasteboard.writeObjects([safeImage])
+                        if !success {
+                            print("警告: 无法复制图片到剪贴板")
+                        }
+                    }
+                }
+            } catch {
+                print("复制图片到剪贴板时出错: \(error.localizedDescription)")
+            }
         }
         
-        // 复制文件URL
+        // 安全地复制文件URL
         if let urls = content.fileURLs, !urls.isEmpty {
-            pasteboard.writeObjects(urls as [NSURL])
+            // 确保URLs是有效的
+            let validURLs = urls.filter { url in url.isFileURL && FileManager.default.fileExists(atPath: url.path) }
+            
+            if !validURLs.isEmpty {
+                success = pasteboard.writeObjects(validURLs as [NSURL])
+                if !success {
+                    print("警告: 无法复制文件URL到剪贴板")
+                }
+            }
         }
     }
     
     // 清除所有历史记录
     func clearHistory() {
         clipboardHistory.removeAll()
-        // 清除数据库（稍后实现）
+        
+        // 从数据库中清除所有项目
+        guard let modelContext = modelContext else {
+            print("警告: 无法清除数据库，模型上下文未初始化")
+            return
+        }
+        
+        do {
+            // 获取所有剪贴板项目
+            let descriptor = FetchDescriptor<ClipboardItem>()
+            let allItems = try modelContext.fetch(descriptor)
+            
+            // 删除所有项目
+            for item in allItems {
+                modelContext.delete(item)
+            }
+            
+            // 保存更改
+            try modelContext.save()
+            print("成功从数据库中清除了所有历史记录")
+        } catch {
+            print("清除数据库时出错: \(error.localizedDescription)")
+        }
     }
     
     // 根据ID删除特定项目
     func deleteItems(withIDs ids: Set<UUID>) {
         clipboardHistory.removeAll(where: { ids.contains($0.id) })
         selectedItems.removeAll()
-        // 从数据库删除（稍后实现）
+        
+        // 从数据库中删除
+        guard let modelContext = modelContext else {
+            print("警告: 无法从数据库删除项目，模型上下文未初始化")
+            return
+        }
+        
+        do {
+            // 对每个ID执行删除操作
+            for id in ids {
+                // 创建查询
+                let predicate = #Predicate<ClipboardItem> { item in
+                    item.id == id
+                }
+                let descriptor = FetchDescriptor<ClipboardItem>(predicate: predicate)
+                
+                // 查找项目
+                if let item = try modelContext.fetch(descriptor).first {
+                    // 删除项目
+                    modelContext.delete(item)
+                }
+            }
+            
+            // 保存更改
+            try modelContext.save()
+            print("成功从数据库中删除了\(ids.count)个项目")
+        } catch {
+            print("从数据库删除项目时出错: \(error.localizedDescription)")
+        }
     }
     
     // 根据关键词搜索历史记录

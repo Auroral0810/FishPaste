@@ -17,15 +17,33 @@ struct FishCopyApp: App {
     
     // SwiftData模型容器配置
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            ClipboardItem.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            // 配置持久化存储选项
+            let modelConfiguration = ModelConfiguration(
+                isStoredInMemoryOnly: false
+            )
+            
+            // 创建具有错误恢复和迁移选项的ModelContainer
+            let container = try ModelContainer(
+                for: ClipboardItem.self, ClipboardCategory.self,
+                configurations: modelConfiguration
+            )
+            print("SwiftData模型容器成功初始化")
+            return container
         } catch {
-            fatalError("无法创建ModelContainer: \(error)")
+            // 如果创建失败，尝试使用内存存储模式作为备用
+            print("初始化持久化ModelContainer失败，错误: \(error.localizedDescription)")
+            print("尝试使用内存存储作为备用...")
+            
+            do {
+                let fallbackConfiguration = ModelConfiguration(isStoredInMemoryOnly: true)
+                return try ModelContainer(
+                    for: ClipboardItem.self, ClipboardCategory.self,
+                    configurations: fallbackConfiguration
+                )
+            } catch {
+                fatalError("无法创建任何ModelContainer: \(error)")
+            }
         }
     }()
 
@@ -35,7 +53,7 @@ struct FishCopyApp: App {
             StatusBarMenuView()
                 .environmentObject(clipboardManager)
                 .frame(width: 350)
-                // 不指定固定高度，让视图自己计算
+                .modelContainer(sharedModelContainer)
         } label: {
             Image(systemName: "doc.on.clipboard")
         }
