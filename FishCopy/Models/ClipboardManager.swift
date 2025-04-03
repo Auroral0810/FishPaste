@@ -26,6 +26,8 @@ class ClipboardManager: ObservableObject {
     @AppStorage("monitoringInterval") var monitoringInterval: Double = 0.5
     // 音效设置
     @AppStorage("enableSoundEffects") var enableSoundEffects: Bool = true
+    // 排除的应用列表
+    private var excludedAppBundleIds: [String] = []
     
     // 音效对象
     private var clipboardChangedSound: NSSound?
@@ -59,6 +61,9 @@ class ClipboardManager: ObservableObject {
             self.monitoringInterval = savedInterval
             print("从UserDefaults加载监控间隔设置: \(savedInterval)秒")
         }
+        
+        // 加载排除应用列表
+        loadExcludedApps()
         
         // 加载音效
         loadSoundEffects()
@@ -242,6 +247,13 @@ class ClipboardManager: ObservableObject {
         
         // 剪贴板变化时处理
         if changeCount != lastChangeCount {
+            // 检查当前应用是否在排除列表中
+            if isCurrentAppExcluded() {
+                print("当前应用在排除列表中，忽略此次剪贴板变化")
+                lastChangeCount = changeCount // 更新计数器，避免重复处理
+                return
+            }
+            
             // 检查时间间隔
             let elapsedTime = currentTime.timeIntervalSince(lastProcessTime)
             
@@ -253,7 +265,7 @@ class ClipboardManager: ObservableObject {
                 return
             }
             
-            // 更新时间和计数
+            // 更新处理时间和计数器
             lastProcessTime = currentTime
             lastChangeCount = changeCount
             print("检测到剪贴板变化，尝试处理内容")
@@ -1475,5 +1487,50 @@ class ClipboardManager: ObservableObject {
         }
         
         return nil
+    }
+    
+    // 加载排除应用列表
+    private func loadExcludedApps() {
+        if let data = UserDefaults.standard.data(forKey: "excludedApps") {
+            do {
+                // 使用相同的ExcludedApp结构进行解码
+                let excludedApps = try JSONDecoder().decode([ExcludedApp].self, from: data)
+                self.excludedAppBundleIds = excludedApps.map { $0.bundleIdentifier }
+                print("已加载\(excludedAppBundleIds.count)个排除应用的Bundle ID")
+            } catch {
+                print("解码排除应用列表时出错: \(error)")
+                self.excludedAppBundleIds = []
+            }
+        } else {
+            self.excludedAppBundleIds = []
+        }
+    }
+    
+    // 定义与SettingsView中相同的ExcludedApp结构
+    struct ExcludedApp: Codable {
+        var id: UUID
+        var name: String
+        var bundleIdentifier: String
+        var path: String
+    }
+    
+    // 检查当前应用是否在排除列表中
+    private func isCurrentAppExcluded() -> Bool {
+        // 获取当前活动应用的Bundle ID
+        if let currentApp = NSWorkspace.shared.frontmostApplication {
+            let bundleId = currentApp.bundleIdentifier ?? ""
+            
+            // 检查是否在排除列表中
+            if excludedAppBundleIds.contains(bundleId) {
+                print("当前应用 '\(currentApp.localizedName ?? "未知")' (\(bundleId)) 在排除列表中")
+                return true
+            }
+        }
+        return false
+    }
+    
+    // 当设置更新时重新加载排除应用列表
+    func refreshExcludedApps() {
+        loadExcludedApps()
     }
 } 

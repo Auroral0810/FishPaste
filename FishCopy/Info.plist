@@ -19,7 +19,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>此应用程序需要访问系统事件以设置自启动功能</string>
+	<string>FishCopy需要访问Apple事件以检测系统快捷键冲突</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>此应用程序需要访问系统设置以设置自启动功能</string>
 	<key>SMLoginItemAuthorizationRights</key>
@@ -34,5 +34,25 @@
 		<key>com.fishcopy.launcher</key>
 		<string>identifier com.fishcopy.launcher and certificate leaf[subject.CN] = "Apple Development: $(DEVELOPMENT_TEAM)"</string>
 	</dict>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>FishCopy</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>runService</string>
+			<key>NSPortName</key>
+			<string>FishCopy</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist> 

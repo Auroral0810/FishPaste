@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import Darwin
+import UniformTypeIdentifiers
 
 // 定义设置选项卡
 enum SettingsTab: String, CaseIterable, Identifiable {
@@ -252,8 +253,9 @@ struct SettingsView: View {
     @State private var enableSounds = UserDefaults.standard.bool(forKey: "enableSoundEffects")
     @State private var showSourceAppIcon = UserDefaults.standard.bool(forKey: "showSourceAppIcon")
     @State private var monitoringInterval = UserDefaults.standard.double(forKey: "monitoringInterval")
-    @State private var isCheckingForUpdates = false
-    @State private var showSyncAlert = false  // 添加提示框状态变量
+    @State private var isCheckingForUpdates = false  // 添加更新检查状态
+    @State private var excludedApps: [ExcludedApp] = [] // 添加排除应用列表
+    @State private var selectedExcludedAppId: UUID? = nil // 当前选中的排除应用ID
     
     // 高级设置
     @State private var useVimKeys = false
@@ -271,11 +273,14 @@ struct SettingsView: View {
     // 历史项目设置
     @State private var deleteAfter = "一个月以后"
     
-    // 快捷键设置
-    @State private var shortcutSelectInterface: String? = nil
-    @State private var shortcutResetState: String? = nil
-    @State private var shortcutPreviousList: String? = nil
-    @State private var shortcutNextList: String? = nil
+    // 快捷键录制相关状态
+    @State private var recordingAction: String? = nil
+    @State private var shortcutValues: [String: String] = [:]
+    @State private var eventMonitor: Any? = nil
+    @State private var refreshTrigger = UUID() // 添加刷新触发器
+    @State private var showingShortcutConflictAlert = false
+    @State private var conflictInfo: (shortcut: String, action: String, conflictWith: String)? = nil
+    @State private var previousShortcutValue: String? = nil // 保存录制前的快捷键值
     
     let statusIconModes = ["出现在状态栏图标旁", "重置状态"]
     let pasteFormats = ["粘贴为原始文本", "保持格式粘贴", "智能粘贴"]
@@ -286,6 +291,12 @@ struct SettingsView: View {
         self.clipboardManager = clipboardManager
         // 使用_selectedTab以直接设置@State变量
         self._selectedTab = State(initialValue: initialTab)
+        
+        // 加载保存的快捷键
+        loadSavedShortcuts()
+        
+        // 加载排除应用列表
+        loadExcludedApps()
     }
     
     var body: some View {
@@ -479,237 +490,608 @@ struct SettingsView: View {
     // 快捷键设置选项卡
     internal var shortcutsTab: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Group {
+                Text("快捷键设置")
+                    .font(.headline)
+                    .padding(.bottom, 10)
+                
+                Text("为常用操作设置键盘快捷键，以便更高效地使用FishCopy。")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom, 20)
+            }
+            .padding(.horizontal, 20)
+            
+            // 快捷键列表
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("定制快捷键以使用更加快速的方式操作 FishCopy。")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 40)
-                        .padding(.top, 20)
-                        .padding(.bottom, 15)
+                    shortcutRow(label: "激活 FishCopy:", keyText: "⌃⌥⌘F", canEdit: false)
+                        .id("激活 FishCopy:\(refreshTrigger)")
                     
-                    Grid(alignment: .leading, horizontalSpacing: 25, verticalSpacing: 18) {
-                        // 标题行
-                        GridRow {
-                            Text("操作")
-                                .font(.headline)
-                                .foregroundColor(.secondary)
-                                .frame(width: 200)
-                                .gridColumnAlignment(.trailing)
-                            
-                            Text("快捷键")
-                                .font(.headline)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        // 分隔
-                        GridRow {
-                            Divider()
-                                .gridCellColumns(2)
-                        }
-                        
-                        // 预设快捷键部分
-                        GridRow {
-                            Text("激活 FishCopy:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                                .frame(width: 200)
-                            
-                            HStack {
-                                keyBadge(text: "⌘⌥V")
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        GridRow {
-                            Text("重置界面状态:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                keyBadge(text: "⌘R")
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        GridRow {
-                            Text("选择上个列表:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                keyBadge(text: "⌘⌃[")
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        GridRow {
-                            Text("选择下个列表:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                keyBadge(text: "⌘⌃]")
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        // 分隔
-                        GridRow {
-                            Color.clear
-                                .frame(height: 8)
-                            
-                            Color.clear
-                        }
-                        
-                        // 可自定义的快捷键部分
-                        GridRow {
-                            Text("快速选择列表:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                Button("录制快捷键") {
-                                    // 录制快捷键的操作
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        GridRow {
-                            Text("清除剪贴板内容:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                Button("录制快捷键") {
-                                    // 录制快捷键的操作
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        GridRow {
-                            Text("清空已保存的项目:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                Button("录制快捷键") {
-                                    // 录制快捷键的操作
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        GridRow {
-                            Text("将最近一个项目以纯文本粘贴:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                Button("录制快捷键") {
-                                    // 录制快捷键的操作
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                Spacer()
-                            }
-                            .frame(width: 120, alignment: .leading)
-                        }
-                        
-                        // 分隔
-                        GridRow {
-                            Divider()
-                                .gridCellColumns(2)
-                                .padding(.vertical, 8)
-                        }
-                        
-                        // 修饰键设置
-                        GridRow {
-                            Text("快速粘贴:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack(spacing: 8) {
-                                Text("按住")
-                                modifierKeyBadge(text: "⌘")
-                                Text("键")
-                                
-                                Spacer().frame(width: 10)
-                                
-                                Picker("", selection: .constant("Command")) {
-                                    Text("Command").tag("Command")
-                                    Text("Option").tag("Option")
-                                    Text("Control").tag("Control")
-                                }
-                                .frame(width: 100)
-                            }
-                        }
-                        
-                        GridRow {
-                            Text("纯文本模式:")
-                                .gridColumnAlignment(.trailing)
-                                .foregroundColor(.secondary)
-                            
-                            HStack(spacing: 8) {
-                                Text("按住")
-                                modifierKeyBadge(text: "⌥")
-                                Text("键")
-                                
-                                Spacer().frame(width: 10)
-                                
-                                Picker("", selection: .constant("Option")) {
-                                    Text("Command").tag("Command")
-                                    Text("Option").tag("Option")
-                                    Text("Control").tag("Control")
-                                }
-                                .frame(width: 100)
-                            }
-                        }
+                    Divider().padding(.vertical, 8)
+                    
+                    Group {
+                        shortcutRow(label: "重置界面状态:", action: {
+                            startRecordingShortcut(for: "重置界面状态:")
+                        })
+                        .id("重置界面状态:\(refreshTrigger)")
+                    
+                        shortcutRow(label: "选择上个列表:", action: {
+                            startRecordingShortcut(for: "选择上个列表:")
+                        })
+                        .id("选择上个列表:\(refreshTrigger)")
+                    
+                        shortcutRow(label: "选择下个列表:", action: {
+                            startRecordingShortcut(for: "选择下个列表:")
+                        })
+                        .id("选择下个列表:\(refreshTrigger)")
+                    
+                        shortcutRow(label: "快速选择列表", action: {
+                            startRecordingShortcut(for: "快速选择列表")
+                        })
+                        .id("快速选择列表\(refreshTrigger)")
                     }
-                    .padding(.horizontal, 25)
-                    .padding(.bottom, 20)
+                    
+                    Divider().padding(.vertical, 8)
+                    
+                    Group {
+                        shortcutRow(label: "清除剪贴板内容:", action: {
+                            startRecordingShortcut(for: "清除剪贴板内容:")
+                        })
+                        .id("清除剪贴板内容:\(refreshTrigger)")
+                    
+                        shortcutRow(label: "将最近一个项目以纯文本粘贴:", action: {
+                            startRecordingShortcut(for: "将最近一个项目以纯文本粘贴:")
+                        })
+                        .id("将最近一个项目以纯文本粘贴:\(refreshTrigger)")
+                    
+                        shortcutRow(label: "清空已保存的项目", action: {
+                            startRecordingShortcut(for: "清空已保存的项目")
+                        })
+                        .id("清空已保存的项目\(refreshTrigger)")
+                    }
+                    
+                    Divider().padding(.vertical, 8)
+                    
+                    // 特殊修饰键设置
+                    Group {
+                        // 快速粘贴
+                        HStack(spacing: 10) {
+                            Text("快速粘贴:")
+                                .foregroundColor(.primary)
+                                .frame(width: 250, alignment: .leading)
+                            
+                            HStack {
+                                Text("按住")
+                                    .foregroundColor(.primary)
+                                
+                                Button(action: {
+                                    startRecordingShortcut(for: "快速粘贴")
+                                }) {
+                                    if let savedShortcut = shortcutValues["快速粘贴"], !savedShortcut.isEmpty {
+                                        Text(savedShortcut)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color(NSColor.controlBackgroundColor))
+                                            .foregroundColor(.primary)
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                            )
+                                    } else {
+                                        Text("⌘")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color(NSColor.controlBackgroundColor))
+                                            .foregroundColor(.primary)
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                            )
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                
+                                Text("键")
+                                    .foregroundColor(.primary)
+                            }
+                            .frame(width: 200, alignment: .leading)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 6)
+                        .id("快速粘贴\(refreshTrigger)")
+                        
+                        // 纯文本模式
+                        HStack(spacing: 10) {
+                            Text("纯文本模式:")
+                                .foregroundColor(.primary)
+                                .frame(width: 250, alignment: .leading)
+                            
+                            HStack {
+                                Text("按住")
+                                    .foregroundColor(.primary)
+                                
+                                Button(action: {
+                                    startRecordingShortcut(for: "纯文本模式")
+                                }) {
+                                    if let savedShortcut = shortcutValues["纯文本模式"], !savedShortcut.isEmpty {
+                                        Text(savedShortcut)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color(NSColor.controlBackgroundColor))
+                                            .foregroundColor(.primary)
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                            )
+                                    } else {
+                                        Text("⌥")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color(NSColor.controlBackgroundColor))
+                                            .foregroundColor(.primary)
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                            )
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                
+                                Text("键")
+                                    .foregroundColor(.primary)
+                            }
+                            .frame(width: 200, alignment: .leading)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 6)
+                        .id("纯文本模式\(refreshTrigger)")
+                    }
                 }
+                .onAppear {
+                    // 加载已保存的快捷键
+                    loadSavedShortcuts()
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(.vertical, 20)
+        .background(Color(NSColor.windowBackgroundColor))
+        .alert(isPresented: $showingShortcutConflictAlert) {
+            Alert(
+                title: Text("无法使用快捷键"),
+                message: Text("\"\(conflictInfo?.shortcut ?? "")\"，因为已用于菜单项\"\(conflictInfo?.conflictWith ?? "")\"。"),
+                dismissButton: .default(Text("好"))
+            )
+        }
+    }
+    
+    // 快捷键行
+    @ViewBuilder
+    private func shortcutRow(label: String, keyText: String? = nil, isRecording: Bool = false, canEdit: Bool = true, action: (() -> Void)? = nil) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .foregroundColor(.primary)
+                .frame(width: 250, alignment: .leading)
+            
+            if let keyText = keyText {
+                // 预设快捷键显示 (但可点击以更改)
+                Button {
+                    action?()
+                } label: {
+                    Text(keyText)
+                        .font(.system(size: 14, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .foregroundColor(.primary)
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                        )
+                        .frame(width: 200, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            } else if canEdit {
+                // 可录入的快捷键按钮
+                HStack(spacing: 4) {
+                    if recordingAction == label {
+                        // 录制状态 - 使用原生macOS风格
+                        ZStack {
+                            Rectangle()
+                                .fill(Color(NSColor.controlBackgroundColor))
+                                .frame(height: 28)
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.blue, lineWidth: 2)
+                                )
+                            
+                            HStack {
+                                Spacer()
+                                Image(systemName: "arrow.up.arrow.down")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 12))
+                                
+                                // 向右箭头
+                                Image(systemName: "arrow.right")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 12))
+                            }
+                            .padding(.trailing, 8)
+                        }
+                        .frame(width: 150)
+                        
+                        // 取消按钮
+                        Button(action: {
+                            stopRecording()
+                        }) {
+                            Image(systemName: "xmark")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(4)
+                                .background(Color(NSColor.controlBackgroundColor))
+                                .clipShape(Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("取消录制")
+                        
+                        // 返回按钮 - 只有在有之前的值时才显示
+                        if previousShortcutValue != nil {
+                            Button(action: {
+                                // 恢复之前的值并停止录制
+                                if let prevValue = previousShortcutValue,
+                                   let action = recordingAction {
+                                    shortcutValues[action] = prevValue
+                                    UserDefaults.standard.set(prevValue, forKey: "shortcut-\(action)")
+                                }
+                                stopRecording()
+                                refreshTrigger = UUID()
+                            }) {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .padding(4)
+                                    .background(Color(NSColor.controlBackgroundColor))
+                                    .clipShape(Circle())
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .help("恢复之前的快捷键")
+                        }
+                    } else if let savedShortcut = shortcutValues[label], !savedShortcut.isEmpty {
+                        // 已保存的快捷键显示 - 使用原生macOS风格
+                        Button {
+                            action?()
+                        } label: {
+                            // 调试输出
+                            let _ = print("显示已保存的快捷键: \(label) -> \(savedShortcut)")
+                            
+                            // 使用原生macOS风格的按钮
+                            HStack {
+                                Text(savedShortcut)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.primary)
+                                
+                                Spacer()
+                                
+                                // 添加小图标表示已保存
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.system(size: 12))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 200, alignment: .leading)
+                    } else {
+                        // 未设置快捷键状态
+                        Button {
+                            action?()
+                        } label: {
+                            ZStack {
+                                Rectangle()
+                                    .fill(Color(NSColor.controlBackgroundColor))
+                                    .frame(height: 28)
+                                    .cornerRadius(6)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                                    )
+                                
+                                HStack {
+                                    Text("录制快捷键")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 14))
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 12))
+                                    
+                                    // 向右箭头
+                                    Image(systemName: "arrow.right")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 12))
+                                }
+                                .padding(.horizontal, 12)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 200, alignment: .leading)
+                    }
+                }
+                .id("\(label)-\(shortcutValues[label] ?? "none")-\(refreshTrigger)") // 增强ID刷新机制
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+        .background(recordingAction == label ? Color.blue.opacity(0.1) : Color.clear)
+    }
+    
+    // 开始录制快捷键
+    private func startRecordingShortcut(for action: String) {
+        // 如果已经在录制，先停止之前的录制
+        if recordingAction != nil {
+            stopRecording()
+        }
+        
+        // 保存之前的快捷键值以便返回
+        previousShortcutValue = shortcutValues[action]
+        
+        // 设置当前正在录制的动作
+        recordingAction = action
+        print("===== 开始录制[\(action)]的快捷键 =====")
+        
+        // 创建本地事件监听器(只能捕获当前应用的事件，但比全局监听器更可靠)
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [self] event in
+            // 非常重要：确保只打印keyDown事件的字符，flagsChanged事件没有字符属性
+            if event.type == .keyDown {
+                print("捕获到本地键盘事件: \(event.type) keyCode: \(event.keyCode) chars: \(event.characters ?? "nil")")
+            } else {
+                print("捕获到本地键盘事件: \(event.type) keyCode: \(event.keyCode) (修饰键事件)")
+            }
+            handleKeyEvent(event)
+            return event // 返回事件让系统继续处理
+        }
+    }
+    
+    // 处理按键事件
+    private func handleKeyEvent(_ event: NSEvent) {
+        // 确保我们正在录制
+        guard let action = recordingAction else { 
+            print("没有正在录制的动作，忽略键盘事件")
+            return 
+        }
+        
+        // 安全地打印事件信息，避免访问flagsChanged事件的characters属性
+        if event.type == .keyDown {
+            print("处理键盘事件: 类型=\(event.type), keyCode=\(event.keyCode), 字符=\(event.characters ?? "nil"), modifiers=\(event.modifierFlags.rawValue)")
+        } else {
+            print("处理键盘事件: 类型=\(event.type), keyCode=\(event.keyCode), modifiers=\(event.modifierFlags.rawValue)")
+        }
+        
+        // 检查是否是"快速粘贴"或"纯文本模式"这两个特殊的修饰键设置
+        let isModifierKeyOnly = (action == "快速粘贴" || action == "纯文本模式")
+        
+        // 处理修饰键事件
+        if event.type == .flagsChanged {
+            // 更新修饰键状态
+            updateModifierKeys(event)
+            
+            // 如果是单独录制修饰键，直接处理修饰键事件
+            if isModifierKeyOnly {
+                // 获取修饰键信息
+                var shortcutString = ""
+                if event.modifierFlags.contains(.command) { shortcutString = "⌘"; print("设置为Command修饰键") }
+                else if event.modifierFlags.contains(.option) { shortcutString = "⌥"; print("设置为Option修饰键") }
+                else if event.modifierFlags.contains(.control) { shortcutString = "⌃"; print("设置为Control修饰键") }
+                else if event.modifierFlags.contains(.shift) { shortcutString = "⇧"; print("设置为Shift修饰键") }
+                
+                // 只有在有修饰键按下时才保存
+                if !shortcutString.isEmpty {
+                    print("单独修饰键快捷键: \(shortcutString)")
+                    DispatchQueue.main.async { [self] in
+                        saveShortcut(shortcutString, for: action)
+                        print("UI状态检查 - 当前recordingAction: \(String(describing: recordingAction))")
+                        print("UI状态检查 - 保存的快捷键值: \(shortcutValues)")
+                        stopRecording()
+                    }
+                }
+            }
+            
+            return // 仅记录修饰键状态，其他情况不保存
+        }
+        // 处理普通按键事件
+        else if event.type == .keyDown {
+            // 获取按键字符
+            let character = event.charactersIgnoringModifiers?.uppercased() ?? ""
+            
+            // 如果按下的是Escape键，取消录制
+            if event.keyCode == 53 { // Escape键的keyCode
+                print("按下了Escape键，取消录制")
+                stopRecording()
+                return
+            }
+            
+            // 对于单独修饰键设置，不处理普通按键事件
+            if isModifierKeyOnly {
+                return
+            }
+            
+            // 将按键转换成容易阅读的形式
+            let keyName = getReadableKeyName(for: event.keyCode, character: character)
+            print("转换后的按键名称: \(keyName)")
+            
+            // 添加修饰键前缀
+            var shortcutString = ""
+            if event.modifierFlags.contains(.command) { shortcutString += "⌘"; print("添加Command修饰键") }
+            if event.modifierFlags.contains(.option) { shortcutString += "⌥"; print("添加Option修饰键") }
+            if event.modifierFlags.contains(.control) { shortcutString += "⌃"; print("添加Control修饰键") }
+            if event.modifierFlags.contains(.shift) { shortcutString += "⇧"; print("添加Shift修饰键") }
+            
+            // 加上按键名
+            shortcutString += keyName
+            print("完整快捷键字符串: \(shortcutString)")
+            
+            // 保存快捷键并停止录制
+            if !shortcutString.isEmpty {
+                DispatchQueue.main.async { [self] in
+                    saveShortcut(shortcutString, for: action)
+                    print("UI状态检查 - 当前recordingAction: \(String(describing: recordingAction))")
+                    print("UI状态检查 - 保存的快捷键值: \(shortcutValues)")
+                    stopRecording()
+                }
+            } else {
+                print("快捷键字符串为空，不保存")
             }
         }
     }
     
-    // 自定义快捷键显示样式
-    @ViewBuilder
-    func keyBadge(text: String) -> some View {
-        Text(text)
-            .font(.system(size: 14, weight: .medium))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.black)
-            .foregroundColor(.white)
-            .cornerRadius(6)
+    // 更新修饰键状态
+    private func updateModifierKeys(_ event: NSEvent) {
+        print("修饰键状态更新: \(event.modifierFlags.rawValue)")
+        // 这里可以存储当前按下的修饰键状态
     }
     
-    // 修饰键样式
-    @ViewBuilder
-    func modifierKeyBadge(text: String) -> some View {
-        Text(text)
-            .font(.system(size: 14, weight: .bold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.black)
-            .foregroundColor(.white)
-            .cornerRadius(4)
+    // 将keyCode转换为易读的按键名称
+    private func getReadableKeyName(for keyCode: UInt16, character: String) -> String {
+        // 特殊按键映射
+        let specialKeys: [UInt16: String] = [
+            123: "←", 124: "→", 125: "↓", 126: "↑", // 箭头键
+            36: "↩", 76: "↩", // Return/Enter
+            48: "⇥", // Tab
+            49: "␣", // Space
+            51: "⌫", // Delete (Backspace)
+            117: "⌦", // Forward Delete
+            115: "⇱", // Home
+            119: "⇲", // End
+            116: "⇞", // Page Up
+            121: "⇟", // Page Down
+            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 
+            98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"
+        ]
+        
+        // 检查是否是特殊按键
+        if let specialKey = specialKeys[keyCode] {
+            print("找到特殊按键映射: keyCode \(keyCode) -> \(specialKey)")
+            return specialKey
+        }
+        
+        // 字母键的处理
+        if !character.isEmpty {
+            print("使用字符作为按键名: \(character)")
+            return character
+        }
+        
+        // 如果没有字符，使用keyCode
+        print("无法识别的按键，使用keyCode: \(keyCode)")
+        return "Key\(keyCode)"
+    }
+    
+    // 保存快捷键
+    private func saveShortcut(_ shortcut: String, for action: String) {
+        // 使用ShortcutManager检查系统快捷键冲突
+        if let conflictWith = ShortcutManager.shared.checkForSystemConflicts(shortcut: shortcut) {
+            // 显示冲突警告
+            conflictInfo = (shortcut, action, conflictWith)
+            showingShortcutConflictAlert = true
+            return
+        }
+
+        // 保存快捷键到状态变量
+        print("保存前 shortcutValues: \(shortcutValues)")
+        shortcutValues[action] = shortcut
+        print("保存后 shortcutValues: \(shortcutValues)")
+        
+        // 注册快捷键
+        ShortcutManager.shared.registerShortcut(for: action, shortcut: shortcut)
+        
+        // 强制视图更新 - 使用额外的状态变量触发更新
+        DispatchQueue.main.async {
+            print("成功保存快捷键: \(action) -> \(shortcut)")
+            
+            // 保存到UserDefaults
+            UserDefaults.standard.set(shortcut, forKey: "shortcut-\(action)")
+            
+            // 强制刷新整个视图
+            self.refreshTrigger = UUID()
+            print("已触发视图刷新: \(self.refreshTrigger)")
+        }
+    }
+    
+    // 停止录制
+    private func stopRecording() {
+        print("停止录制\(recordingAction != nil ? "[\(recordingAction!)]" : "")的快捷键")
+        recordingAction = nil
+        
+        // 移除事件监听器
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+            print("已移除事件监听器")
+        }
+    }
+    
+    // 载入已保存的快捷键
+    private func loadSavedShortcuts() {
+        print("开始加载已保存的快捷键")
+        let shortcuts = [
+            "激活 FishCopy:", 
+            "重置界面状态:", 
+            "选择上个列表:", 
+            "选择下个列表:", 
+            "快速选择列表",
+            "清除剪贴板内容:",
+            "将最近一个项目以纯文本粘贴:",
+            "清空已保存的项目",
+            "快速粘贴",
+            "纯文本模式"
+        ]
+        
+        var loadedShortcuts: [String: String] = [:]
+        
+        // 从UserDefaults加载保存的快捷键
+        for shortcut in shortcuts {
+            if let value = UserDefaults.standard.string(forKey: "shortcut-\(shortcut)") {
+                loadedShortcuts[shortcut] = value
+                print("已加载快捷键: \(shortcut) -> \(value)")
+                
+                // 同时注册到ShortcutManager
+                ShortcutManager.shared.registerShortcut(for: shortcut, shortcut: value)
+            }
+        }
+        
+        // 更新状态
+        DispatchQueue.main.async {
+            self.shortcutValues = loadedShortcuts
+            print("已更新shortcutValues: \(self.shortcutValues)")
+        }
     }
     
     // 排除规则选项卡
@@ -726,15 +1108,22 @@ struct SettingsView: View {
                     
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(["Passwords", "1Password"], id: \.self) { app in
+                            ForEach(excludedApps) { app in
                                 HStack(spacing: 15) {
-                                    Image(systemName: app == "Passwords" ? "key.fill" : "lock.fill")
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: 28, height: 28)
-                                        .foregroundColor(.blue)
+                                    if let appIcon = app.icon {
+                                        Image(nsImage: appIcon)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 28, height: 28)
+                                    } else {
+                                        Image(systemName: "app.fill")
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 28, height: 28)
+                                            .foregroundColor(.blue)
+                                    }
                                     
-                                    Text(app)
+                                    Text(app.name)
                                         .fontWeight(.medium)
                                     
                                     Spacer()
@@ -742,9 +1131,13 @@ struct SettingsView: View {
                                 .padding(.vertical, 10)
                                 .padding(.horizontal, 15)
                                 .contentShape(Rectangle())
-                                .background(Color.gray.opacity(0.1).cornerRadius(8))
+                                .background(selectedExcludedAppId == app.id ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+                                .cornerRadius(8)
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 4)
+                                .onTapGesture {
+                                    selectedExcludedAppId = app.id
+                                }
                             }
                         }
                     }
@@ -752,19 +1145,19 @@ struct SettingsView: View {
                     
                     HStack {
                         Button(action: {
-                            // 添加应用
+                            selectAndAddApplication()
                         }) {
                             Label("添加应用", systemImage: "plus")
                         }
                         .buttonStyle(.bordered)
                         
                         Button(action: {
-                            // 移除应用
+                            removeSelectedApplication()
                         }) {
                             Label("移除", systemImage: "minus")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(true)
+                        .disabled(selectedExcludedAppId == nil)
                         
                         Spacer()
                     }
@@ -857,7 +1250,6 @@ struct SettingsView: View {
                         .labelsHidden()
                         .scaleEffect(1.2)
                         .frame(width: 50)
-                        .disabled(true)  // 禁用开关
                     
                     Text("开启后自动同步剪贴板历史记录")
                         .font(.caption)
@@ -867,10 +1259,11 @@ struct SettingsView: View {
                 Spacer().frame(height: 10)
                 
                 Button("立刻同步") {
-                    showSyncAlert = true  // 显示提示框
+                    // 同步操作
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(true)
                 .frame(width: 120)
                 
                 Text("最近同步: 从未同步")
@@ -883,11 +1276,6 @@ struct SettingsView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .alert("同步功能暂未开放", isPresented: $showSyncAlert) {
-            Button("好的", role: .cancel) { }
-        } message: {
-            Text("由于经费有限，当前版本暂不支持Cloud同步，后续版本即将推出")
-        }
     }
     
     // 高级设置选项卡
@@ -1073,7 +1461,7 @@ struct SettingsView: View {
             if let sharingService = sharingService {
                 // 设置收件人
                 sharingService.recipients = [recipient]
-                
+                                
                 // 准备要分享的内容：正文文本和附件文件
                 let sharingItems: [Any] = [
                     subject as NSString,
@@ -1174,6 +1562,117 @@ struct SettingsView: View {
                 self.isCheckingForUpdates = false
             }
         }
+    }
+    
+    // 添加排除应用的数据模型
+    struct ExcludedApp: Identifiable, Codable {
+        var id: UUID
+        var name: String
+        var bundleIdentifier: String
+        var path: String
+        
+        var icon: NSImage? {
+            if let appURL = URL(string: path) {
+                return NSWorkspace.shared.icon(forFile: appURL.path)
+            }
+            return nil
+        }
+        
+        enum CodingKeys: String, CodingKey {
+            case id, name, bundleIdentifier, path
+        }
+    }
+    
+    // 加载排除应用列表
+    private func loadExcludedApps() {
+        if let data = UserDefaults.standard.data(forKey: "excludedApps") {
+            do {
+                let apps = try JSONDecoder().decode([ExcludedApp].self, from: data)
+                self.excludedApps = apps
+                print("已加载排除应用列表: \(apps.count) 个应用")
+            } catch {
+                print("解码排除应用列表时出错: \(error)")
+                self.excludedApps = []
+            }
+        } else {
+            self.excludedApps = []
+        }
+    }
+    
+    // 保存排除应用列表
+    private func saveExcludedApps() {
+        do {
+            let data = try JSONEncoder().encode(excludedApps)
+            UserDefaults.standard.set(data, forKey: "excludedApps")
+            print("已保存排除应用列表: \(excludedApps.count) 个应用")
+            
+            // 通知ClipboardManager重新加载排除列表
+            clipboardManager.refreshExcludedApps()
+        } catch {
+            print("编码排除应用列表时出错: \(error)")
+        }
+    }
+    
+    // 选择并添加应用到排除列表
+    private func selectAndAddApplication() {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = [UTType.application]
+        openPanel.directoryURL = URL(fileURLWithPath: "/Applications")
+        openPanel.title = "选择要添加到排除列表的应用"
+        
+        openPanel.begin { response in
+            if response == .OK, let url = openPanel.url {
+                self.addApplicationToExcludedList(url)
+            }
+        }
+    }
+    
+    // 添加应用到排除列表
+    private func addApplicationToExcludedList(_ url: URL) {
+        let bundle = Bundle(url: url)
+        
+        guard let bundleIdentifier = bundle?.bundleIdentifier else {
+            print("无法获取应用的Bundle标识符")
+            return
+        }
+        
+        // 检查是否已经在列表中
+        if excludedApps.contains(where: { $0.bundleIdentifier == bundleIdentifier }) {
+            print("应用已在排除列表中: \(url.lastPathComponent)")
+            return
+        }
+        
+        let appName = url.deletingPathExtension().lastPathComponent
+        
+        let excludedApp = ExcludedApp(
+            id: UUID(),
+            name: appName,
+            bundleIdentifier: bundleIdentifier,
+            path: url.absoluteString
+        )
+        
+        excludedApps.append(excludedApp)
+        saveExcludedApps()
+        
+        print("已添加应用到排除列表: \(appName) (\(bundleIdentifier))")
+    }
+    
+    // 从排除列表中移除选中的应用
+    private func removeSelectedApplication() {
+        guard let selectedId = selectedExcludedAppId,
+              let index = excludedApps.firstIndex(where: { $0.id == selectedId }) else {
+            return
+        }
+        
+        let appName = excludedApps[index].name
+        excludedApps.remove(at: index)
+        selectedExcludedAppId = nil
+        saveExcludedApps()
+        
+        print("已从排除列表中移除应用: \(appName)")
     }
 }
 
@@ -1428,3 +1927,4 @@ struct HistorySettingsSection: View {
 #Preview {
     SettingsView(clipboardManager: ClipboardManager())
 } 
+
