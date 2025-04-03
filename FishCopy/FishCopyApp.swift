@@ -45,8 +45,12 @@ struct FishCopyApp: App {
         print("FishCopyApp初始化，设置状态栏动画器")
         _ = statusItemAnimator
         
-        // 在初始化时设置随系统启动
-        Self.checkAndApplyStartupSetting(launchAtStartup)
+        // 在初始化完成后异步设置随系统启动
+        let launchSetting = launchAtStartup // 复制值到本地变量
+        DispatchQueue.main.async {
+            print("异步执行启动项设置")
+            Self.checkAndApplyStartupSetting(launchSetting) // 使用本地变量
+        }
     }
     
     // 设置UserDefaults默认值
@@ -141,11 +145,9 @@ struct FishCopyApp: App {
                 .frame(width: 350)
                 .modelContainer(sharedModelContainer)
         } label: {
-            // 使用自定义状态栏图标而不是系统图标
+            // 使用自定义状态栏图标
             Group {
-                if let customIcon = NSImage(contentsOfFile: Bundle.main.path(forResource: "statusBarIcon", ofType: "png") ?? "") {
-                    // 设置为模板图像
-                    let _ = customIcon.isTemplate = true
+                if let customIcon = loadAppropriateStatusBarIcon() {
                     Image(nsImage: customIcon)
                 } else {
                     // 备用：如果找不到自定义图标，使用系统图标
@@ -173,6 +175,13 @@ struct FishCopyApp: App {
                     openMainWindow()
                 }
                 .keyboardShortcut("o", modifiers: [.command])
+            }
+            
+            // 自定义关于菜单
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 FishCopy") {
+                    openAboutWindow()
+                }
             }
         }
     }
@@ -220,6 +229,40 @@ struct FishCopyApp: App {
         shared.openMainWindow()
     }
     
+    // 打开关于窗口
+    func openAboutWindow() {
+        // 检查是否已有关于窗口
+        if let existingWindow = NSApplication.shared.windows.first(where: { $0.title.contains("关于 FishCopy") }) {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        // 创建关于窗口
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "关于 FishCopy"
+        window.center()
+        
+        // 创建关于视图
+        let aboutView = AboutView()
+        
+        // 创建托管视图
+        let hostingController = NSHostingController(rootView: aboutView)
+        window.contentViewController = hostingController
+        
+        // 显示窗口
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        
+        // 保持窗口引用
+        FishCopyApp.activeWindows.append(window)
+    }
+    
     // 打开设置窗口
     func openSettingsWindow() {
         // 检查是否已有设置窗口
@@ -243,5 +286,23 @@ struct FishCopyApp: App {
         
         // 保持窗口引用
         FishCopyApp.activeWindows.append(window)
+    }
+    
+    // 根据系统外观加载合适的状态栏图标
+    private func loadAppropriateStatusBarIcon() -> NSImage? {
+        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        
+        // 在深色模式下使用白色图标，否则使用常规图标
+        let iconName = isDarkMode ? "statusBarIcon_white" : "statusBarIcon"
+        
+        // 直接从Asset Catalog加载图标
+        if let customIcon = NSImage(named: iconName) {
+            // 设置为模板图像，以便根据状态栏颜色自动调整
+            customIcon.isTemplate = true
+            return customIcon
+        }
+        
+        // 如果找不到图标，使用系统图标作为备用
+        return NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "FishCopy")
     }
 }

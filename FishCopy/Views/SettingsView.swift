@@ -1410,20 +1410,11 @@ struct SettingsView: View {
                         .fill(Color(red: 0.15, green: 0.18, blue: 0.22))
                         .frame(width: 120, height: 120)
                     
-                    if let logoPath = Bundle.main.path(forResource: "appLogo_256x256", ofType: "png"),
-                       let logoImage = NSImage(contentsOfFile: logoPath) {
-                        Image(nsImage: logoImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 100, height: 100)
-                    } else {
-                        // 备用：如果找不到自定义Logo，使用系统图标
-                        Image(systemName: "doc.on.clipboard")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 60, height: 60)
-                            .foregroundColor(.blue)
-                    }
+                    // 直接从Asset Catalog加载图标
+                    Image("logo-circle")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 100, height: 100)
                 }
                 
                 // 应用信息

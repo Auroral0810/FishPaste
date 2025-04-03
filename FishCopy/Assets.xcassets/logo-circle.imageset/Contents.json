@@ -1,20 +1,26 @@
 {
   "images" : [
     {
+      "filename" : "logo-circle.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
+      "filename" : "logo-circle@2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
+      "filename" : "logo-circle@2x.png",
       "idiom" : "universal",
       "scale" : "3x"
     }
   ],
   "info" : {
-    "author" : "xcode",
+    "author" : "Yunfeng Yu",
     "version" : 1
+  },
+  "properties" : {
+    "preserves-vector-representation" : true
   }
 } 
