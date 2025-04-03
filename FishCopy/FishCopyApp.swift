@@ -137,11 +137,21 @@ struct FishCopyApp: App {
         // 状态栏菜单
         MenuBarExtra {
             StatusBarMenuView()
-                .environmentObject(clipboardManager)
+                .environmentObject(self.clipboardManager)
                 .frame(width: 350)
                 .modelContainer(sharedModelContainer)
         } label: {
-            Image(systemName: "doc.on.clipboard")
+            // 使用自定义状态栏图标而不是系统图标
+            Group {
+                if let customIcon = NSImage(contentsOfFile: Bundle.main.path(forResource: "statusBarIcon", ofType: "png") ?? "") {
+                    // 设置为模板图像
+                    let _ = customIcon.isTemplate = true
+                    Image(nsImage: customIcon)
+                } else {
+                    // 备用：如果找不到自定义图标，使用系统图标
+                    Image(systemName: "doc.on.clipboard")
+                }
+            }
         }
         .menuBarExtraStyle(.window) // 使用窗口样式显示菜单
         

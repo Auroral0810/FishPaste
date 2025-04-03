@@ -135,9 +135,21 @@ struct MainView: View {
             if filteredClipboardItems.isEmpty {
                 VStack(spacing: 20) {
                     Spacer()
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 40))
-                        .foregroundColor(.gray)
+                    
+                    // 使用自定义应用图标
+                    if let appIcon = NSImage(contentsOfFile: Bundle.main.path(forResource: "appLogo_256x256", ofType: "png") ?? "") {
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 64, height: 64)
+                            .opacity(0.6)
+                    } else {
+                        // 备用：使用系统图标
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                    }
+                    
                     Text("没有匹配的剪贴板历史")
                         .foregroundColor(.gray)
                     Spacer()

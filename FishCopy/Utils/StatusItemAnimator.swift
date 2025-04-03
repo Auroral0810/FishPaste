@@ -98,9 +98,19 @@ class StatusItemAnimator {
         // 移除额外的状态栏项目创建，仅在初始化时准备好动画资源
         print("StatusItemAnimator: 准备动画资源")
         
-        // 使用系统符号图像作为备用原始图像
+        // 优先使用自定义图标，如果没有则回退到系统图标
         if originalImage == nil {
-            originalImage = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "FishCopy")
+            if let customIconPath = Bundle.main.path(forResource: "statusBarIcon", ofType: "png"),
+               let customIcon = NSImage(contentsOfFile: customIconPath) {
+                // 使用自定义状态栏图标
+                customIcon.isTemplate = true
+                originalImage = customIcon
+                print("使用自定义状态栏图标")
+            } else {
+                // 如果找不到自定义图标，使用系统图标作为备用
+                originalImage = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "FishCopy")
+                print("找不到自定义图标，使用系统图标代替")
+            }
         }
         
         // 尝试查找主状态栏图标

@@ -1404,17 +1404,26 @@ struct SettingsView: View {
             Spacer()
             
             VStack(spacing: 25) {
-                // 应用图标
+                // 应用图标 - 使用自定义应用Logo
                 ZStack {
                     Circle()
-                        .fill(Color.blue.opacity(0.15))
+                        .fill(Color(red: 0.15, green: 0.18, blue: 0.22))
                         .frame(width: 120, height: 120)
                     
-                    Image(systemName: "doc.on.clipboard")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 60, height: 60)
-                        .foregroundColor(.blue)
+                    if let logoPath = Bundle.main.path(forResource: "appLogo_256x256", ofType: "png"),
+                       let logoImage = NSImage(contentsOfFile: logoPath) {
+                        Image(nsImage: logoImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 100, height: 100)
+                    } else {
+                        // 备用：如果找不到自定义Logo，使用系统图标
+                        Image(systemName: "doc.on.clipboard")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 60, height: 60)
+                            .foregroundColor(.blue)
+                    }
                 }
                 
                 // 应用信息
