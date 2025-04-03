@@ -252,7 +252,8 @@ struct SettingsView: View {
     @State private var enableSounds = UserDefaults.standard.bool(forKey: "enableSoundEffects")
     @State private var showSourceAppIcon = UserDefaults.standard.bool(forKey: "showSourceAppIcon")
     @State private var monitoringInterval = UserDefaults.standard.double(forKey: "monitoringInterval")
-    @State private var isCheckingForUpdates = false  // 添加更新检查状态
+    @State private var isCheckingForUpdates = false
+    @State private var showSyncAlert = false  // 添加提示框状态变量
     
     // 高级设置
     @State private var useVimKeys = false
@@ -856,6 +857,7 @@ struct SettingsView: View {
                         .labelsHidden()
                         .scaleEffect(1.2)
                         .frame(width: 50)
+                        .disabled(true)  // 禁用开关
                     
                     Text("开启后自动同步剪贴板历史记录")
                         .font(.caption)
@@ -865,11 +867,10 @@ struct SettingsView: View {
                 Spacer().frame(height: 10)
                 
                 Button("立刻同步") {
-                    // 同步操作
+                    showSyncAlert = true  // 显示提示框
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(true)
                 .frame(width: 120)
                 
                 Text("最近同步: 从未同步")
@@ -882,6 +883,11 @@ struct SettingsView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .alert("同步功能暂未开放", isPresented: $showSyncAlert) {
+            Button("好的", role: .cancel) { }
+        } message: {
+            Text("由于经费有限，当前版本暂不支持Cloud同步，后续版本即将推出")
+        }
     }
     
     // 高级设置选项卡
