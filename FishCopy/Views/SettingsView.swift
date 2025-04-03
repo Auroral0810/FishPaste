@@ -344,7 +344,7 @@ struct SettingsView: View {
     internal var tabSize: CGSize {
         switch selectedTab {
         case .general:
-            return CGSize(width: 700, height: 250)  // 通用 - 高度从300减小到220
+            return CGSize(width: 700, height: 220)  // 通用 - 高度从300减小到220
         case .shortcuts:
             return CGSize(width: 700, height: 580)  // 快捷键 - 较高
         case .rules:
@@ -372,7 +372,7 @@ struct SettingsView: View {
     // 通用设置选项卡
     internal var generalTab: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 // MARK: - 使用体验
                 Text("使用体验")
                     .font(.headline)
@@ -451,7 +451,7 @@ struct SettingsView: View {
                     .padding(.vertical, 2)
                 
                 Divider()
-                    .padding(.vertical, 3)
+                    .padding(.vertical, 2)
                 
                 // 退出选项
                 HStack {
@@ -466,7 +466,7 @@ struct SettingsView: View {
                     .padding(.trailing, 15)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .padding(.horizontal, 16)
             .frame(width: 260)
             .frame(maxWidth: .infinity, alignment: .center)
