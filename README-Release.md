@@ -1,4 +1,4 @@
-# FishCopy 自动发布指南
+# FishPaste 自动发布指南
 
 ## 自动化DMG构建和发布流程
 

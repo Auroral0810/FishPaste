@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FishCopy 本地发布辅助脚本
+# FishPaste 本地发布辅助脚本
 # 此脚本帮助您创建新版本标签并推送到GitHub，触发自动构建和发布流程
 
 # 颜色定义
@@ -20,7 +20,7 @@ fi
 # 检查当前目录是否为Git仓库
 if [ ! -d .git ]; then
     echo -e "${RED}错误: 当前目录不是Git仓库${NC}"
-    echo "请在FishCopy项目的根目录运行此脚本"
+    echo "请在FishPaste项目的根目录运行此脚本"
     exit 1
 fi
 
@@ -106,7 +106,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}标签 $version 已成功推送${NC}"
     echo "GitHub Actions将开始自动构建和发布流程"
     echo "您可以在GitHub仓库的Actions标签页查看进度"
-    echo "https://github.com/YOUR_USERNAME/FishCopy/actions"
+    echo "https://github.com/YOUR_USERNAME/FishPaste/actions"
 else
     echo -e "${YELLOW}标签仅在本地创建，未推送到远程仓库${NC}"
     echo "稍后可使用以下命令推送:"

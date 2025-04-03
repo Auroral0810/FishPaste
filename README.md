@@ -37,7 +37,7 @@ FishPaste是一款功能强大的macOS剪贴板增强工具，专为提升您的
 FishPaste已经实现了PasteNow的基本功能，包括：批量复制、粘贴功能，无限历史记录，自定义快捷键，支持文本、图片、文件等多种格式，搜索功能，自定义分类，支持排除规则，音效反馈，丰富列表样式，窗口前置固定，自定义监控板时间间隔，高效数据库操作，开机自启动，GPU图像加速，拖拽粘贴，智能列表，内容编辑，添加标题等功能，并作为macOS原生应用提供了流畅的用户体验。
 
 <div align="center">
-  <img src="./FishCopy/image/应用概览.png" alt="FishPaste应用概览" width="100%">
+  <img src="./FishPaste/image/应用概览.png" alt="FishPaste应用概览" width="100%">
 </div>
 
 
@@ -109,7 +109,7 @@ FishPaste作为PasteNow的重新实现，已经完成并优化了以下所有核
 
   <tr>
     <td width="50%">
-      <img src="./FishCopy/image/交互演示.gif" alt="微交互演示" width="100%">
+      <img src="./FishPaste/image/交互演示.gif" alt="微交互演示" width="100%">
     </td>
     <td width="50%">
       <h3>✨ 微交互细节</h3>
@@ -149,7 +149,7 @@ brew install --cask FishPaste
   <tr>
     <td><b>1</b></td>
     <td>从菜单栏访问FishPaste图标</td>
-    <td rowspan="5"><img src="./FishCopy/image/使用演示.gif" alt="使用演示" width="100%"></td>
+    <td rowspan="5"><img src="./FishPaste/image/使用演示.gif" alt="使用演示" width="100%"></td>
   </tr>
   <tr>
     <td><b>2</b></td>

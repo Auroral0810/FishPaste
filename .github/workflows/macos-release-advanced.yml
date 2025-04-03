@@ -62,16 +62,16 @@ jobs:
         run: |
           # 使用xcodebuild archive命令创建归档
           xcodebuild clean archive \
-            -project FishCopy.xcodeproj \
-            -scheme FishCopy \
+            -project FishPaste.xcodeproj \
+            -scheme FishPaste \
             -configuration Release \
-            -archivePath build/FishCopy.xcarchive
+            -archivePath build/FishPaste.xcarchive
             
       - name: Export macOS App
         run: |
           # 从归档中导出应用
           xcodebuild -exportArchive \
-            -archivePath build/FishCopy.xcarchive \
+            -archivePath build/FishPaste.xcarchive \
             -exportOptionsPlist ExportOptions.plist \
             -exportPath build/export
             
@@ -80,27 +80,27 @@ jobs:
           
           # 将应用复制到更方便的位置
           mkdir -p artifacts
-          cp -R build/export/FishCopy.app artifacts/
+          cp -R build/export/FishPaste.app artifacts/
         
       - name: Create DMG
         run: |
           # 创建DMG文件
           create-dmg \
-            --volname "FishCopy" \
-            --volicon "FishCopy/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png" \
+            --volname "FishPaste" \
+            --volicon "FishPaste/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png" \
             --window-pos 200 120 \
             --window-size 800 500 \
             --icon-size 100 \
-            --icon "FishCopy.app" 200 190 \
-            --hide-extension "FishCopy.app" \
+            --icon "FishPaste.app" 200 190 \
+            --hide-extension "FishPaste.app" \
             --app-drop-link 600 185 \
-            "artifacts/FishCopy.dmg" \
-            "artifacts/FishCopy.app"
+            "artifacts/FishPaste.dmg" \
+            "artifacts/FishPaste.app"
             
           # 如果上面的命令失败，尝试简化版本
           if [ $? -ne 0 ]; then
             echo "尝试简化DMG创建方法..."
-            create-dmg "artifacts/FishCopy.dmg" "artifacts/FishCopy.app"
+            create-dmg "artifacts/FishPaste.dmg" "artifacts/FishPaste.app"
           fi
           
       - name: Notarize App (optional)
@@ -111,14 +111,14 @@ jobs:
         if: ${{ env.APPLE_ID != '' && env.APPLE_PASSWORD != '' }}
         run: |
           # 将DMG文件上传到Apple公证服务
-          xcrun notarytool submit artifacts/FishCopy.dmg \
+          xcrun notarytool submit artifacts/FishPaste.dmg \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait
             
           # 添加公证票据到DMG
-          xcrun stapler staple artifacts/FishCopy.dmg
+          xcrun stapler staple artifacts/FishPaste.dmg
           
       - name: Extract Version from Tag
         id: get_version
@@ -128,19 +128,19 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/FishCopy.dmg
-          name: FishCopy ${{ steps.get_version.outputs.VERSION }}
+          files: artifacts/FishPaste.dmg
+          name: FishPaste ${{ steps.get_version.outputs.VERSION }}
           body: |
-            FishCopy ${{ steps.get_version.outputs.VERSION }} 发布
+            FishPaste ${{ steps.get_version.outputs.VERSION }} 发布
             
             ## 下载
-            - [FishCopy.dmg](FishCopy.dmg) - macOS应用安装包
+            - [FishPaste.dmg](FishPaste.dmg) - macOS应用安装包
             
             ## 安装方法
             1. 下载DMG文件
             2. 双击打开DMG文件
-            3. 将FishCopy拖入Applications文件夹
-            4. 从应用程序文件夹启动FishCopy
+            3. 将FishPaste拖入Applications文件夹
+            4. 从应用程序文件夹启动FishPaste
             
             ## 版本变更
             - 此处列出新版本的主要变更和功能更新
