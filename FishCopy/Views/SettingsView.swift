@@ -251,6 +251,7 @@ struct SettingsView: View {
     @State private var enableSounds = UserDefaults.standard.bool(forKey: "enableSoundEffects")
     @State private var showSourceAppIcon = UserDefaults.standard.bool(forKey: "showSourceAppIcon")
     @State private var monitoringInterval = UserDefaults.standard.double(forKey: "monitoringInterval")
+    @State private var isCheckingForUpdates = false  // 添加更新检查状态
     
     // 高级设置
     @State private var useVimKeys = false
@@ -371,7 +372,7 @@ struct SettingsView: View {
     // 通用设置选项卡
     internal var generalTab: some View {
         ScrollView {
-            VStack(alignment: .center, spacing: 8) {  // 修改alignment为center
+            VStack(alignment: .center, spacing: 8) {
                 // MARK: - 使用体验
                 Text("使用体验")
                     .font(.headline)
@@ -396,7 +397,7 @@ struct SettingsView: View {
                         }
                 }
                 .padding(6)
-                .frame(width: 250)  // 设置固定宽度
+                .frame(width: 250)
                 .background(Color(NSColor.textBackgroundColor).opacity(0.1))
                 .cornerRadius(6)
                 
@@ -409,7 +410,7 @@ struct SettingsView: View {
                         Button("发送反馈") {
                             sendFeedbackEmail()
                         }
-                        .buttonStyle(.bordered)  // 使用macOS原生按钮样式
+                        .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
                     .frame(width: 250)
@@ -420,14 +421,23 @@ struct SettingsView: View {
                             Text("更新:")
                                 .foregroundColor(.secondary)
                             
-                            Button("检查更新") {
-                                // 检查更新的操作
+                            Button(action: {
+                                checkForUpdates()
+                            }) {
+                                if isCheckingForUpdates {
+                                    ProgressView()
+                                        .scaleEffect(0.6)
+                                        .frame(width: 16, height: 16)
+                                } else {
+                                    Text("检查更新")
+                                }
                             }
-                            .buttonStyle(.bordered)  // 使用macOS原生按钮样式
+                            .buttonStyle(.bordered)
                             .controlSize(.small)
+                            .disabled(isCheckingForUpdates)
                         }
                         
-                        Text("当前版本: 0.1.0")
+                        Text("当前版本: \(getCurrentVersion())")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
@@ -441,14 +451,14 @@ struct SettingsView: View {
                         Button("退出 FishCopy") {
                             NSApplication.shared.terminate(nil)
                         }
-                        .buttonStyle(.bordered)  // 使用macOS原生按钮样式
+                        .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
                     .frame(width: 250)
                 }
                 .padding(.top, 4)
             }
-            .frame(maxWidth: .infinity)  // 确保容器占满可用宽度
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
         }
     }
@@ -1049,141 +1059,27 @@ struct SettingsView: View {
     
     // 发送反馈邮件
     func sendFeedbackEmail() {
-        // 获取系统信息
-        let systemVersion = ProcessInfo.processInfo.operatingSystemVersionString
-        
-        // 获取设备型号（MacBookPro等）
-        var deviceModel = "Mac"
-        if let modelName = executeShellCommand("sysctl -n hw.model") {
-            deviceModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        
-        let uuid = UUID().uuidString
-        
-        // 创建邮件内容
-        let subject = "FishPaste Feedback"
-        let body = """
-        FishPaste (Official): 0.1.0
-        System: \(systemVersion)
-        Device: \(deviceModel)
-        UUID: \(uuid)
-        """
-        
-        // 创建设置文件
-        guard let settingsFileURL = createSettingsFile() else {
-            // 显示错误
-            let alert = NSAlert()
-            alert.messageText = "创建设置文件失败"
-            alert.informativeText = "无法创建设置文件用于反馈，请稍后再试。"
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "确定")
-            alert.runModal()
-            return
-        }
-        
-        // 使用NSWorkspace.shared.open()打开Mail客户端并尝试创建一个新邮件
-        let service = NSSharingService(named: NSSharingService.Name.composeEmail)
-        
-        if let emailService = service {
-            // 设置收件人
-            emailService.recipients = ["15968588744@163.com"]
-            
-            // 设置主题和正文
-            emailService.subject = subject
-            
-            // 分享项目（正文和附件）
-            emailService.perform(withItems: [body, settingsFileURL])
-        } else {
-            // 如果无法使用内置的分享服务，则尝试AppleScript
-            let script = """
-            tell application "Mail"
-                set newMessage to make new outgoing message with properties {subject:"\(subject)", content:"\(body)", visible:true}
-                tell newMessage
-                    set toRecipient to make new to recipient with properties {address:"15968588744@163.com"}
-                    tell content
-                        make new attachment with properties {file name:"\(settingsFileURL.path)"} at after last paragraph
-                    end tell
-                end tell
-                activate
-            end tell
-            """
-            
-            let appleScript = NSAppleScript(source: script)
-            var errorDict: NSDictionary?
-            
-            if let appleScript = appleScript {
-                appleScript.executeAndReturnError(&errorDict)
-                
-                if let error = errorDict {
-                    print("AppleScript错误: \(error)")
-                    
-                    // 尝试第三种方法：直接创建并打开包含附件的Apple事件
-                    let fileManager = FileManager.default
-                    let desktopURL = try? fileManager.url(for: .desktopDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-                    let scriptPath = desktopURL?.appendingPathComponent("send_email.applescript")
-                    
-                    do {
-                        try script.write(to: scriptPath!, atomically: true, encoding: String.Encoding.utf8)
-                        let task = Process()
-                        task.launchPath = "/usr/bin/osascript"
-                        task.arguments = [scriptPath!.path]
-                        try task.run()
-                    } catch {
-                        print("尝试运行AppleScript文件失败: \(error)")
-                        
-                        // 最后的备选方案：使用mailto链接（但这会丢失附件）
-                        var components = URLComponents()
-                        components.scheme = "mailto"
-                        components.path = "15968588744@163.com"
-                        components.queryItems = [
-                            URLQueryItem(name: "subject", value: subject),
-                            URLQueryItem(name: "body", value: body)
-                        ]
-                        
-                        if let mailtoURL = components.url {
-                            NSWorkspace.shared.open(mailtoURL)
-                        }
-                    }
-                }
-            } else {
-                // 如果AppleScript创建失败，使用mailto链接作为最后的备选方案
-                var components = URLComponents()
-                components.scheme = "mailto"
-                components.path = "15968588744@163.com"
-                components.queryItems = [
-                    URLQueryItem(name: "subject", value: subject),
-                    URLQueryItem(name: "body", value: body)
-                ]
-                
-                if let mailtoURL = components.url {
-                    NSWorkspace.shared.open(mailtoURL)
-                }
-            }
+        if let url = URL(string: "mailto:yuyunfeng@example.com?subject=FishCopy反馈&body=FishCopy版本：\(getCurrentVersion())%0A%0A我的反馈：%0A%0A") {
+            NSWorkspace.shared.open(url)
         }
     }
     
-    // 执行Shell命令获取信息
-    private func executeShellCommand(_ command: String) -> String? {
-        let task = Process()
-        let pipe = Pipe()
+    // 获取当前版本
+    func getCurrentVersion() -> String {
+        return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+    }
+    
+    // 检查更新
+    private func checkForUpdates() {
+        isCheckingForUpdates = true
         
-        task.standardOutput = pipe
-        task.arguments = ["-c", command]
-        task.launchPath = "/bin/sh"
-        task.standardError = pipe
-        
-        do {
-            try task.run()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                return output
+        // 使用UpdateChecker执行更新检查
+        UpdateChecker.shared.checkForUpdates { _, _, _, _ in
+            // 完成后重置状态
+            DispatchQueue.main.async {
+                self.isCheckingForUpdates = false
             }
-        } catch {
-            print("执行命令失败: \(error.localizedDescription)")
         }
-        
-        return nil
     }
 }
 

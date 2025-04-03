@@ -1052,7 +1052,7 @@ struct StatusBarMenuView: View {
     }
     
     // 发送反馈
-    private func sendFeedback() {
+    func sendFeedback() {
         // 创建一个临时的设置视图实例
         let settingsView = SettingsView(clipboardManager: clipboardManager)
         
