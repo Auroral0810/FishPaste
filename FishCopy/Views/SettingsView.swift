@@ -344,7 +344,7 @@ struct SettingsView: View {
     internal var tabSize: CGSize {
         switch selectedTab {
         case .general:
-            return CGSize(width: 700, height: 220)  // 通用 - 高度从300减小到220
+            return CGSize(width: 700, height: 250)  // 通用 - 高度从300减小到220
         case .shortcuts:
             return CGSize(width: 700, height: 580)  // 快捷键 - 较高
         case .rules:
@@ -372,95 +372,106 @@ struct SettingsView: View {
     // 通用设置选项卡
     internal var generalTab: some View {
         ScrollView {
-            VStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 // MARK: - 使用体验
                 Text("使用体验")
                     .font(.headline)
                     .foregroundColor(.primary)
-                    .padding(.bottom, -5)
+                    .padding(.bottom, 1)
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    // 自动开启设置
-                    Toggle("开机自动启动", isOn: $launchAtStartup)
-                        .toggleStyle(.switch)
+                // 启动设置
+                HStack(spacing: 0) {
+                    Text("启动：")
+                        .frame(width: 50, alignment: .trailing)
+                    
+                    Toggle("随系统启动", isOn: $launchAtStartup)
+                        .toggleStyle(.checkbox)
                         .onChange(of: launchAtStartup) { newValue in
                             UserDefaults.standard.set(newValue, forKey: "launchAtStartup")
                             clipboardManager.setLaunchAtStartup(newValue)
                         }
+                }
+                
+                // 音效设置
+                HStack(spacing: 0) {
+                    Text("声音：")
+                        .frame(width: 50, alignment: .trailing)
                     
-                    // 音效设置
-                    Toggle("启用音效反馈", isOn: $enableSounds)
-                        .toggleStyle(.switch)
+                    Toggle("启用音效", isOn: $enableSounds)
+                        .toggleStyle(.checkbox)
                         .onChange(of: enableSounds) { newValue in
                             UserDefaults.standard.set(newValue, forKey: "enableSoundEffects")
                             clipboardManager.setEnableSoundEffects(newValue)
                         }
                 }
-                .padding(6)
-                .frame(width: 250)
-                .background(Color(NSColor.textBackgroundColor).opacity(0.1))
-                .cornerRadius(6)
                 
-                VStack(spacing: 6) {
-                    // 支持选项
-                    HStack {
-                        Text("支持:")
-                            .foregroundColor(.secondary)
-                        
-                        Button("发送反馈") {
-                            sendFeedbackEmail()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .frame(width: 250)
+                Divider()
+                    .padding(.vertical, 3)
+                
+                // 支持选项
+                HStack {
+                    Text("支持：")
+                        .frame(width: 50, alignment: .trailing)
                     
-                    // 更新选项
-                    VStack(spacing: 4) {
-                        HStack {
-                            Text("更新:")
-                                .foregroundColor(.secondary)
-                            
-                            Button(action: {
-                                checkForUpdates()
-                            }) {
-                                if isCheckingForUpdates {
-                                    ProgressView()
-                                        .scaleEffect(0.6)
-                                        .frame(width: 16, height: 16)
-                                } else {
-                                    Text("检查更新")
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(isCheckingForUpdates)
-                        }
-                        
-                        Text("当前版本: \(getCurrentVersion())")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                    Button("发送反馈") {
+                        sendFeedbackEmail()
                     }
-                    .frame(width: 250)
-                    
-                    // 退出选项
-                    HStack {
-                        Text("退出:")
-                            .foregroundColor(.secondary)
-                        
-                        Button("退出 FishCopy") {
-                            NSApplication.shared.terminate(nil)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .frame(width: 250)
+                    .controlSize(.regular)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 15)
                 }
-                .padding(.top, 4)
+                
+                // 更新选项
+                HStack {
+                    Text("更新：")
+                        .frame(width: 50, alignment: .trailing)
+                    
+                    Button(action: {
+                        checkForUpdates()
+                    }) {
+                        if isCheckingForUpdates {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Text("检查更新")
+                        }
+                    }
+                    .controlSize(.regular)
+                    .disabled(isCheckingForUpdates)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 15)
+                }
+                
+                // 版本信息
+                Text("当前版本: \(getCurrentVersion())")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 2)
+                
+                Divider()
+                    .padding(.vertical, 3)
+                
+                // 退出选项
+                HStack {
+                    Text("退出：")
+                        .frame(width: 50, alignment: .trailing)
+                    
+                    Button("退出 FishCopy") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .controlSize(.regular)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 15)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .frame(width: 260)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
+        .frame(height: 200)
     }
     
     // 快捷键设置选项卡
