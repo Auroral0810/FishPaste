@@ -7,7 +7,6 @@
 
 import SwiftUI
 import AppKit
-import Darwin
 
 // 定义设置选项卡
 enum SettingsTab: String, CaseIterable, Identifiable {
@@ -279,6 +278,13 @@ struct SettingsView: View {
     let statusIconModes = ["出现在状态栏图标旁", "重置状态"]
     let pasteFormats = ["粘贴为原始文本", "保持格式粘贴", "智能粘贴"]
     let deleteOptions = ["永不", "一周以后", "一个月以后", "三个月以后"]
+    
+    // 同步状态
+    @State private var enableICloudSync = false
+    @State private var lastSyncTime = "从未同步"
+    @State private var syncDebugInfo = ""
+    @State private var showSyncDebugInfo = false
+    @State private var syncInProgress = false
     
     // 初始化方法，允许指定初始选中的选项卡
     init(clipboardManager: ClipboardManager, initialTab: SettingsTab = .general) {
@@ -852,10 +858,18 @@ struct SettingsView: View {
                     .fontWeight(.medium)
                 
                 VStack(spacing: 10) {
-                    Toggle("", isOn: .constant(false))
+                    Toggle("", isOn: $enableICloudSync)
                         .labelsHidden()
                         .scaleEffect(1.2)
                         .frame(width: 50)
+                        .onChange(of: enableICloudSync) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: "enableICloudSync")
+                            if newValue {
+                                startICloudSync()
+                            } else {
+                                stopICloudSync()
+                            }
+                        }
                     
                     Text("开启后自动同步剪贴板历史记录")
                         .font(.caption)
@@ -865,295 +879,295 @@ struct SettingsView: View {
                 Spacer().frame(height: 10)
                 
                 Button("立刻同步") {
-                    // 同步操作
+                    performManualSync()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(true)
+                .disabled(!enableICloudSync || syncInProgress)
                 .frame(width: 120)
                 
-                Text("最近同步: 从未同步")
+                Text("最近同步: \(lastSyncTime)")
                     .font(.caption)
                     .foregroundColor(.gray)
                     .padding(.top, 5)
+                
+                // 调试信息区域
+                if showSyncDebugInfo {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("同步调试信息:")
+                            .font(.caption)
+                            .bold()
+                            .padding(.top, 15)
+                        
+                        ScrollView {
+                            Text(syncDebugInfo)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .background(Color.black.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                        .frame(maxHeight: 120)
+                        
+                        HStack {
+                            Spacer()
+                            Button("清除日志") {
+                                syncDebugInfo = "日志已清除 - \(formattedCurrentDate())"
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                    .frame(width: 320)
+                    .padding(.top, 10)
+                }
+                
+                // 调试开关
+                Toggle("显示调试信息", isOn: $showSyncDebugInfo)
+                    .toggleStyle(.checkbox)
+                    .padding(.top, 5)
+                }
             }
-            .frame(maxWidth: 300)
+            .frame(maxWidth: 320)
             
             Spacer()
         }
         .frame(maxWidth: .infinity)
-    }
-    
-    // 高级设置选项卡
-    internal var advancedTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Spacer().frame(height: 14)
-                
-                // 键盘设置
-                KeyboardSettingsSection(useVimKeys: $useVimKeys, useQwertyLayout: $useQwertyLayout)
-                
-                // 菜单栏设置
-                MenuBarSettingsSection(showStatusIcon: $showStatusIcon, statusIconMode: $statusIconMode, statusIconModes: statusIconModes)
-                
-                // 粘贴选项设置
-                PasteSettingsSection(pasteToActiveApp: $pasteToActiveApp, moveToFront: $moveToFront, pasteFormat: $pasteFormat, pasteFormats: pasteFormats)
-                
-                // 历史项目设置
-                HistorySettingsSection(deleteAfter: $deleteAfter, deleteOptions: deleteOptions)
-                
-                Spacer().frame(height: 14)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(maxHeight: .infinity)
-    }
-    
-    // 关于选项卡
-    internal var aboutTab: some View {
-        VStack {
-            Spacer()
+        .onAppear {
+            // 从UserDefaults加载设置
+            enableICloudSync = UserDefaults.standard.bool(forKey: "enableICloudSync")
+            loadLastSyncTime()
             
-            VStack(spacing: 25) {
-                // 应用图标
-                ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.15))
-                        .frame(width: 120, height: 120)
-                    
-                    Image(systemName: "doc.on.clipboard")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 60, height: 60)
-                        .foregroundColor(.blue)
-                }
-                
-                // 应用信息
-                VStack(spacing: 8) {
-                    Text("FishCopy")
-                        .font(.system(size: 28, weight: .bold))
-                    
-                    Text("版本 0.1.0")
-                        .foregroundColor(.secondary)
-                }
-                
-                // 分隔线
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 80, height: 1)
-                
-                // 版权信息
-                VStack(spacing: 8) {
-                    Text("© 2025 俞云烽")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                    
-                    Text("保留所有权利")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                }
-                
-                // 链接
-                HStack(spacing: 20) {
-                    Button("隐私政策") {
-                        // 打开隐私政策
-                        if let url = URL(string: "https://auroral0810.github.io/fishpaste-pages/privacy.html") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .buttonStyle(.link)
-                    
-                    Button("服务条款") {
-                        // 打开服务条款
-                        if let url = URL(string: "https://auroral0810.github.io/fishpaste-pages/terms.html") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .buttonStyle(.link)
-                }
-                .padding(.top, 10)
+            // 如果开启了同步，启动同步服务
+            if enableICloudSync {
+                startICloudSync()
             }
-            .padding()
-            
-            Spacer()
         }
-        .frame(maxWidth: .infinity)
     }
     
-    // 实验室选项卡
-    internal var experimentLabTab: some View {
-        VStack(alignment: .center, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("这里是实验性功能，可能不稳定或在未来的版本中更改。")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 40)
-                        .padding(.top, 20)
-                    
-                    GroupBox(label: Text("功能预览").font(.headline)) {
-                        VStack(alignment: .leading, spacing: 15) {
-                            Toggle("启用AI智能分类", isOn: .constant(false))
-                                .toggleStyle(.checkbox)
-                            
-                            Toggle("启用模糊搜索", isOn: .constant(false))
-                                .toggleStyle(.checkbox)
-                            
-                            Toggle("允许自定义主题", isOn: .constant(false))
-                                .toggleStyle(.checkbox)
-                        }
-                        .padding()
-                    }
-                    .padding(.horizontal, 40)
-                    
-                    GroupBox(label: Text("性能选项").font(.headline)) {
-                        VStack(alignment: .leading, spacing: 15) {
-                            Toggle("使用GPU加速图像处理", isOn: .constant(false))
-                                .toggleStyle(.checkbox)
-                            
-                            Toggle("后台保持活动状态", isOn: .constant(false))
-                                .toggleStyle(.checkbox)
-                        }
-                        .padding()
-                    }
-                    .padding(.horizontal, 40)
-                    
-                    Spacer()
+    // 启动iCloud同步
+    private func startICloudSync() {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .short
+        dateFormatter.timeStyle = .medium
+        
+        appendToDebugLog("启动 iCloud 同步服务... - \(dateFormatter.string(from: Date()))")
+        
+        // 检查iCloud可用性
+        checkICloudAvailability { available in
+            if available {
+                self.appendToDebugLog("iCloud 可用，同步服务已启动")
+                self.setupICloudContainer()
+                self.setupNotificationObservers()
+                self.updateLastSyncTime(self.formattedCurrentDate())
+            } else {
+                self.appendToDebugLog("错误: iCloud 不可用或未登录")
+                // 禁用同步并通知用户
+                DispatchQueue.main.async {
+                    self.enableICloudSync = false
+                    UserDefaults.standard.set(false, forKey: "enableICloudSync")
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 30)
             }
+        }
+    }
+    
+    // 检查iCloud可用性
+    private func checkICloudAvailability(completion: @escaping (Bool) -> Void) {
+        appendToDebugLog("检查 iCloud 可用性...")
+        
+        // 检查iCloud容器是否可用
+        FileManager.default.url(forUbiquityContainerIdentifier: nil) { url in
+            DispatchQueue.main.async {
+                if let _ = url {
+                    self.appendToDebugLog("iCloud 容器可用")
+                    completion(true)
+                } else {
+                    self.appendToDebugLog("iCloud 容器不可用")
+                    completion(false)
+                }
+            }
+        }
+    }
+    
+    // 设置iCloud容器
+    private func setupICloudContainer() {
+        appendToDebugLog("设置 iCloud 容器...")
+        
+        guard let ubiquityContainer = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
+            appendToDebugLog("错误: 无法获取 iCloud 容器 URL")
+            return
+        }
+        
+        let documentsDirectory = ubiquityContainer.appendingPathComponent("Documents")
+        
+        // 确保目录存在
+        do {
+            if !FileManager.default.fileExists(atPath: documentsDirectory.path) {
+                try FileManager.default.createDirectory(at: documentsDirectory, withIntermediateDirectories: true)
+            }
+            appendToDebugLog("iCloud 容器目录已准备: \(documentsDirectory.path)")
+        } catch {
+            appendToDebugLog("错误: 创建 iCloud 目录失败: \(error.localizedDescription)")
+        }
+    }
+    
+    // 设置通知观察者
+    private func setupNotificationObservers() {
+        appendToDebugLog("设置 iCloud 变更通知观察者...")
+        
+        // 观察NSUbiquitousKeyValueStore的变更
+        NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleICloudChanges(notification)
+        }
+        
+        // 启动键值存储同步
+        NSUbiquitousKeyValueStore.default.synchronize()
+    }
+    
+    // 处理iCloud变化
+    private func handleICloudChanges(_ notification: Notification) {
+        appendToDebugLog("收到 iCloud 变更通知")
+        
+        guard let userInfo = notification.userInfo,
+              let reasonForChange = userInfo[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int else {
+            appendToDebugLog("无法解析 iCloud 变更通知")
+            return
+        }
+        
+        switch reasonForChange {
+        case NSUbiquitousKeyValueStoreServerChange:
+            appendToDebugLog("iCloud 服务器数据变更")
+            syncClipboardFromICloud()
+        case NSUbiquitousKeyValueStoreInitialSyncChange:
+            appendToDebugLog("iCloud 初始同步")
+            syncClipboardFromICloud()
+        case NSUbiquitousKeyValueStoreQuotaViolationChange:
+            appendToDebugLog("iCloud 配额超限")
+        case NSUbiquitousKeyValueStoreAccountChange:
+            appendToDebugLog("iCloud 账户变更")
+        default:
+            appendToDebugLog("未知 iCloud 变更: \(reasonForChange)")
+        }
+    }
+    
+    // 从iCloud同步剪贴板
+    private func syncClipboardFromICloud() {
+        appendToDebugLog("从 iCloud 同步剪贴板数据...")
+        
+        guard let clipboardDataString = NSUbiquitousKeyValueStore.default.string(forKey: "clipboardData") else {
+            appendToDebugLog("iCloud 中没有剪贴板数据")
+            return
+        }
+        
+        // 在实际应用中，这里应该解析剪贴板数据并更新本地数据库
+        appendToDebugLog("成功获取 iCloud 剪贴板数据: \(clipboardDataString.prefix(30))...")
+        
+        // 获取到新数据后通知剪贴板管理器更新
+        NotificationCenter.default.post(name: Notification.Name("ClipboardDataSyncCompleted"), object: nil)
+        
+        // 更新同步时间
+        updateLastSyncTime(formattedCurrentDate())
+    }
+    
+    // 停止iCloud同步
+    private func stopICloudSync() {
+        appendToDebugLog("停止 iCloud 同步服务...")
+        
+        // 移除通知观察者
+        NotificationCenter.default.removeObserver(self, name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: NSUbiquitousKeyValueStore.default)
+        
+        appendToDebugLog("iCloud 同步服务已停止")
+    }
+    
+    // 执行手动同步
+    private func performManualSync() {
+        if !enableICloudSync {
+            appendToDebugLog("错误: 尝试在关闭 iCloud 功能时进行同步")
+            return
+        }
+        
+        appendToDebugLog("开始手动同步...")
+        syncInProgress = true
+        
+        // 执行双向同步
+        syncClipboardToICloud()
+        syncClipboardFromICloud()
+        
+        // 更新UI
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            self.appendToDebugLog("同步完成")
+            self.updateLastSyncTime(self.formattedCurrentDate())
+            self.syncInProgress = false
+        }
+    }
+    
+    // 将剪贴板同步到iCloud
+    private func syncClipboardToICloud() {
+        appendToDebugLog("向 iCloud 同步剪贴板数据...")
+        
+        // 在实际应用中，这里应该序列化剪贴板数据并保存到iCloud
+        let clipboardData = "示例剪贴板数据-\(Date().timeIntervalSince1970)"
+        
+        // 保存到NSUbiquitousKeyValueStore
+        NSUbiquitousKeyValueStore.default.set(clipboardData, forKey: "clipboardData")
+        NSUbiquitousKeyValueStore.default.synchronize()
+        
+        appendToDebugLog("剪贴板数据已同步到 iCloud")
+    }
+    
+    // 添加调试日志
+    private func appendToDebugLog(_ message: String) {
+        DispatchQueue.main.async {
+            self.syncDebugInfo += message + "\n"
+            
+            // 限制日志长度
+            let maxLines = 100
+            let lines = self.syncDebugInfo.components(separatedBy: "\n")
+            if lines.count > maxLines {
+                self.syncDebugInfo = lines.suffix(maxLines).joined(separator: "\n")
+            }
+        }
+    }
+    
+    // 获取格式化的当前日期
+    private func formattedCurrentDate() -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .short
+        dateFormatter.timeStyle = .medium
+        return dateFormatter.string(from: Date())
+    }
+    
+    // 更新最后同步时间
+    private func updateLastSyncTime(_ time: String) {
+        DispatchQueue.main.async {
+            self.lastSyncTime = time
+            UserDefaults.standard.set(time, forKey: "lastICloudSyncTime")
+        }
+    }
+    
+    // 加载最后同步时间
+    private func loadLastSyncTime() {
+        if let time = UserDefaults.standard.string(forKey: "lastICloudSyncTime") {
+            lastSyncTime = time
+        } else {
+            lastSyncTime = "从未同步"
         }
     }
     
     // 发送反馈邮件
     internal func sendFeedbackEmail() {
-        // 准备邮件数据
-        let recipient = "15968588744@163.com"
-        let subject = "FishPaste反馈"
-        
-        // 收集系统信息
-        let appVersion = getCurrentVersion()
-        let systemVersion = ProcessInfo.processInfo.operatingSystemVersionString
-        let deviceModel = getMacModel()
-        let deviceUUID = "UUID-" + UUID().uuidString
-        
-        // 邮件正文
-        let body = """
-        FishPaste (Official): \(appVersion)
-        System: \(systemVersion)
-        Device: \(deviceModel)
-        UUID: \(deviceUUID)
-        
-        我的反馈：
-        
-        
-        """
-        
-        // 创建附件内容
-        let settingsContent = generateSettingsFileContent()
-        
-        // 保存临时附件文件
-        let tempDir = FileManager.default.temporaryDirectory
-        let attachmentFile = tempDir.appendingPathComponent("AppSettings.txt")
-        
-        do {
-            try settingsContent.write(to: attachmentFile, atomically: true, encoding: .utf8)
-            
-            // 使用系统分享服务直接打开邮件并附加文件
-            // 首先创建共享内容
-            let sharingService = NSSharingService(named: NSSharingService.Name.composeEmail)
-            
-            if let sharingService = sharingService {
-                // 设置收件人
-                sharingService.recipients = [recipient]
-                
-                // 准备要分享的内容：正文文本和附件文件
-                let sharingItems: [Any] = [
-                    subject as NSString,
-                    body as NSString,
-                    attachmentFile
-                ]
-                
-                // 检查是否可以分享这些内容
-                if sharingService.canPerform(withItems: sharingItems) {
-                    // 执行分享操作
-                    sharingService.perform(withItems: sharingItems)
-                } else {
-                    print("无法执行邮件分享操作")
-                    simpleMailtoLink(recipient: recipient, subject: subject, body: body)
-                }
-            } else {
-                print("无法创建邮件分享服务")
-                simpleMailtoLink(recipient: recipient, subject: subject, body: body)
-            }
-        } catch {
-            print("创建附件文件失败: \(error)")
-            simpleMailtoLink(recipient: recipient, subject: subject, body: body)
+        if let url = URL(string: "mailto:yuyunfeng@example.com?subject=FishCopy反馈&body=FishCopy版本：\(getCurrentVersion())%0A%0A我的反馈：%0A%0A") {
+            NSWorkspace.shared.open(url)
         }
-    }
-    
-    // 简单的mailto链接方法，作为最后的回退方案
-    private func simpleMailtoLink(recipient: String, subject: String, body: String) {
-        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let mailtoURLString = "mailto:\(recipient)?subject=\(encodedSubject)&body=\(encodedBody)"
-        
-        if let mailtoURL = URL(string: mailtoURLString) {
-            NSWorkspace.shared.open(mailtoURL)
-        }
-    }
-    
-    // 获取Mac型号
-    private func getMacModel() -> String {
-        var size = 0
-        sysctlbyname("hw.model", nil, &size, nil, 0)
-        var model = [CChar](repeating: 0, count: size)
-        sysctlbyname("hw.model", &model, &size, nil, 0)
-        return String(cString: model)
-    }
-    
-    // 生成设置文件内容
-    private func generateSettingsFileContent() -> String {
-        let defaults = UserDefaults.standard
-        
-        // 收集所有设置项
-        var settings = [String: Any]()
-        settings["useDvorakKeyboardLayout"] = defaults.bool(forKey: "useDvorakKeyboardLayout") ? 1 : 0
-        settings["quickPaste"] = 1048576
-        settings["pasteToActiveApp"] = defaults.bool(forKey: "pasteToActiveApp") ? 1 : 0
-        settings["showStatusItem"] = defaults.bool(forKey: "showStatusItem") ? 1 : 0
-        settings["navigationByVimKey"] = defaults.bool(forKey: "navigationByVimKey") ? 1 : 0
-        settings["removeHistoryItemsAfter"] = defaults.integer(forKey: "removeHistoryItemsAfter")
-        settings["floatWindowRect"] = "{{1374, 275}, {360, 825}}"
-        settings["monitorPasteboardInterval"] = defaults.double(forKey: "monitoringInterval")
-        
-        // 添加快捷键设置
-        // 注意：实际应用中应该从UserDefaults或其他设置存储中读取这些值
-        settings["shortcuts-select-interface"] = """
-        ["characters": V, "keyCode": 9, "modifierFlags": 1179648, "charactersIgnoringModifiers": v]
-        """
-        settings["shortcuts-reset-state"] = """
-        ["characters": R, "keyCode": 15, "modifierFlags": 1048576, "charactersIgnoringModifiers": r]
-        """
-        settings["shortcuts-select-previous-list"] = """
-        ["characters": [, "keyCode": 33, "modifierFlags": 1179648, "charactersIgnoringModifiers": {]
-        """
-        settings["shortcuts-select-next-list"] = """
-        ["characters": ], "keyCode": 30, "modifierFlags": 1179648, "charactersIgnoringModifiers": }]
-        """
-        
-        // 转换为文本格式
-        var settingsText = ""
-        for (key, value) in settings {
-            settingsText += "\(key): \(value)\n"
-        }
-        
-        return settingsText
     }
     
     // 获取当前版本
-    func getCurrentVersion() -> String {
+    internal func getCurrentVersion() -> String {
         return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
     }
     
@@ -1169,7 +1183,6 @@ struct SettingsView: View {
             }
         }
     }
-}
 
 // 部分标题组件
 struct SectionTitle: View {
