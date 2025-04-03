@@ -344,11 +344,23 @@ struct SettingsView: View {
                 .tag(SettingsTab.about)
         }
         .frame(width: 700, height: tabSize.height)
-        .onChange(of: selectedTab) { _ in
+        .onChange(of: selectedTab) { newTab in
             adjustWindowSize()
+            
+            // 当切换到排除规则标签页时重新加载排除应用列表
+            if newTab == .rules {
+                print("切换到排除规则标签页，重新加载排除应用列表")
+                loadExcludedApps()
+            }
         }
         .onAppear {
             adjustWindowSize()
+            
+            // 如果初始标签页是排除规则，则立即加载排除应用列表
+            if selectedTab == .rules {
+                print("初始标签页是排除规则，立即加载排除应用列表")
+                loadExcludedApps()
+            }
         }
         .environmentObject(clipboardManager)
     }
@@ -1094,6 +1106,37 @@ struct SettingsView: View {
         }
     }
     
+    // 加载排除应用列表
+    private func loadExcludedApps() {
+        print("开始加载排除应用列表...")
+        if let data = UserDefaults.standard.data(forKey: "excludedApps") {
+            print("找到排除应用数据，大小: \(data.count) 字节")
+            do {
+                let apps = try JSONDecoder().decode([ExcludedApp].self, from: data)
+                DispatchQueue.main.async {
+                    self.excludedApps = apps
+                    print("成功加载排除应用列表: \(apps.count) 个应用")
+                    print("成功更新UI显示排除应用列表")
+                    if !apps.isEmpty {
+                        print("已加载的应用: \(apps.map { $0.name }.joined(separator: ", "))")
+                    }
+                }
+            } catch {
+                print("解码排除应用列表时出错: \(error)")
+                print("错误详情: \(error.localizedDescription)")
+                // 尝试恢复 - 设置为空列表
+                DispatchQueue.main.async {
+                    self.excludedApps = []
+                }
+            }
+        } else {
+            print("UserDefaults中没有找到排除应用数据，使用空列表")
+            DispatchQueue.main.async {
+                self.excludedApps = []
+            }
+        }
+    }
+    
     // 排除规则选项卡
     internal var rulesTab: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1140,6 +1183,7 @@ struct SettingsView: View {
                                 }
                             }
                         }
+                        .id(UUID()) // 强制在每次渲染时重新创建视图
                     }
                     .frame(maxHeight: .infinity)
                     
@@ -1167,6 +1211,11 @@ struct SettingsView: View {
                 .tabItem {
                     Label("根据App", systemImage: "app.badge")
                 }
+                .onAppear {
+                    // 每次显示此视图时重新加载排除列表
+                    loadExcludedApps()
+                }
+                .id("ExcludedAppsTab-\(excludedApps.count)") // 当应用列表数量变化时重新创建视图
                 
                 // 其他规则选项卡
                 VStack(alignment: .leading, spacing: 20) {
@@ -1583,36 +1632,6 @@ struct SettingsView: View {
         }
     }
     
-    // 加载排除应用列表
-    private func loadExcludedApps() {
-        if let data = UserDefaults.standard.data(forKey: "excludedApps") {
-            do {
-                let apps = try JSONDecoder().decode([ExcludedApp].self, from: data)
-                self.excludedApps = apps
-                print("已加载排除应用列表: \(apps.count) 个应用")
-            } catch {
-                print("解码排除应用列表时出错: \(error)")
-                self.excludedApps = []
-            }
-        } else {
-            self.excludedApps = []
-        }
-    }
-    
-    // 保存排除应用列表
-    private func saveExcludedApps() {
-        do {
-            let data = try JSONEncoder().encode(excludedApps)
-            UserDefaults.standard.set(data, forKey: "excludedApps")
-            print("已保存排除应用列表: \(excludedApps.count) 个应用")
-            
-            // 通知ClipboardManager重新加载排除列表
-            clipboardManager.refreshExcludedApps()
-        } catch {
-            print("编码排除应用列表时出错: \(error)")
-        }
-    }
-    
     // 选择并添加应用到排除列表
     private func selectAndAddApplication() {
         let openPanel = NSOpenPanel()
@@ -1673,6 +1692,21 @@ struct SettingsView: View {
         saveExcludedApps()
         
         print("已从排除列表中移除应用: \(appName)")
+    }
+    
+    // 保存排除应用列表
+    private func saveExcludedApps() {
+        do {
+            let data = try JSONEncoder().encode(excludedApps)
+            UserDefaults.standard.set(data, forKey: "excludedApps")
+            UserDefaults.standard.synchronize() // 确保立即同步数据到磁盘
+            print("已保存排除应用列表: \(excludedApps.count) 个应用")
+            
+            // 通知ClipboardManager重新加载排除列表
+            clipboardManager.refreshExcludedApps()
+        } catch {
+            print("编码排除应用列表时出错: \(error)")
+        }
     }
 }
 

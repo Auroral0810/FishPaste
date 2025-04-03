@@ -214,6 +214,15 @@ class ClipboardManager: ObservableObject {
     
     // 打开设置
     func showSettings() {
+        // 检查是否已经有设置窗口存在
+        for window in NSApplication.shared.windows {
+            if window.title == "FishCopy 设置" {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+        }
+        
         // 创建并显示设置窗口
         let settingsWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 650, height: 480),
@@ -223,6 +232,9 @@ class ClipboardManager: ObservableObject {
         )
         settingsWindow.center()
         settingsWindow.title = "FishCopy 设置"
+        
+        // 刷新排除应用列表
+        loadExcludedApps()
         
         // 创建设置视图
         let settingsView = SettingsView(clipboardManager: self)
@@ -1491,17 +1503,25 @@ class ClipboardManager: ObservableObject {
     
     // 加载排除应用列表
     private func loadExcludedApps() {
+        print("ClipboardManager - 开始加载排除应用列表...")
         if let data = UserDefaults.standard.data(forKey: "excludedApps") {
+            print("ClipboardManager - 找到排除应用数据，大小: \(data.count) 字节")
             do {
                 // 使用相同的ExcludedApp结构进行解码
                 let excludedApps = try JSONDecoder().decode([ExcludedApp].self, from: data)
                 self.excludedAppBundleIds = excludedApps.map { $0.bundleIdentifier }
-                print("已加载\(excludedAppBundleIds.count)个排除应用的Bundle ID")
+                print("ClipboardManager - 成功加载 \(excludedAppBundleIds.count) 个排除应用的Bundle ID")
+                if !excludedAppBundleIds.isEmpty {
+                    print("ClipboardManager - 排除的应用Bundle ID: \(excludedAppBundleIds.joined(separator: ", "))")
+                }
             } catch {
-                print("解码排除应用列表时出错: \(error)")
+                print("ClipboardManager - 解码排除应用列表时出错: \(error)")
+                print("ClipboardManager - 错误详情: \(error.localizedDescription)")
+                // 出错时设置为空列表
                 self.excludedAppBundleIds = []
             }
         } else {
+            print("ClipboardManager - UserDefaults中没有找到排除应用数据，使用空列表")
             self.excludedAppBundleIds = []
         }
     }
@@ -1531,6 +1551,12 @@ class ClipboardManager: ObservableObject {
     
     // 当设置更新时重新加载排除应用列表
     func refreshExcludedApps() {
+        let previousCount = excludedAppBundleIds.count
         loadExcludedApps()
+        let newCount = excludedAppBundleIds.count
+        print("排除应用列表已更新: \(previousCount) -> \(newCount) 个应用")
+        if !excludedAppBundleIds.isEmpty {
+            print("排除的应用bundleID列表: \(excludedAppBundleIds)")
+        }
     }
 } 
