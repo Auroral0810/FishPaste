@@ -38,12 +38,28 @@ struct FishCopyApp: App {
     init() {
         FishCopyApp.shared = self
         
+        // 设置UserDefaults默认值
+        setupDefaultUserDefaults()
+        
         // 初始化状态栏动画控制器(这样确保它在应用程序生命周期内存在)
         print("FishCopyApp初始化，设置状态栏动画器")
         _ = statusItemAnimator
         
         // 在初始化时设置随系统启动
         Self.checkAndApplyStartupSetting(launchAtStartup)
+    }
+    
+    // 设置UserDefaults默认值
+    private func setupDefaultUserDefaults() {
+        let defaultValues: [String: Any] = [
+            "launchAtStartup": true,
+            "enableSoundEffects": true,
+            "showSourceAppIcon": true,
+            "monitoringInterval": 0.5
+        ]
+        
+        UserDefaults.standard.register(defaults: defaultValues)
+        print("已设置UserDefaults默认值")
     }
     
     // 检查并应用随系统启动设置

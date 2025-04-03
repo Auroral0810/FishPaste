@@ -343,7 +343,7 @@ struct SettingsView: View {
     internal var tabSize: CGSize {
         switch selectedTab {
         case .general:
-            return CGSize(width: 700, height: 300)  // 通用 - 较小
+            return CGSize(width: 700, height: 220)  // 通用 - 高度从300减小到220
         case .shortcuts:
             return CGSize(width: 700, height: 580)  // 快捷键 - 较高
         case .rules:
@@ -371,75 +371,85 @@ struct SettingsView: View {
     // 通用设置选项卡
     internal var generalTab: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .center, spacing: 8) {  // 修改alignment为center
                 // MARK: - 使用体验
-                SectionTitle(title: "使用体验")
+                Text("使用体验")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                    .padding(.bottom, -5)
                 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
                     // 自动开启设置
                     Toggle("开机自动启动", isOn: $launchAtStartup)
                         .toggleStyle(.switch)
+                        .onChange(of: launchAtStartup) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: "launchAtStartup")
+                            clipboardManager.setLaunchAtStartup(newValue)
+                        }
                     
                     // 音效设置
                     Toggle("启用音效反馈", isOn: $enableSounds)
                         .toggleStyle(.switch)
                         .onChange(of: enableSounds) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: "enableSoundEffects")
                             clipboardManager.setEnableSoundEffects(newValue)
                         }
-                    
-                    // 来源应用图标显示设置
-                    Toggle("显示来源应用图标", isOn: $showSourceAppIcon)
-                        .toggleStyle(.switch)
-                        .onChange(of: showSourceAppIcon) { newValue in
-                            UserDefaults.standard.set(newValue, forKey: "showSourceAppIcon")
-                        }
                 }
-                .padding()
+                .padding(6)
+                .frame(width: 250)  // 设置固定宽度
                 .background(Color(NSColor.textBackgroundColor).opacity(0.1))
-                .cornerRadius(8)
+                .cornerRadius(6)
                 
-                // 支持选项
-                GridRow {
-                    Text("支持:")
-                        .gridColumnAlignment(.trailing)
-                        .foregroundColor(.secondary)
-                    
-                    Button("发送反馈") {
-                        sendFeedbackEmail()
-                    }
-                    .buttonStyle(.link)
-                }
-                
-                // 更新选项
-                GridRow {
-                    Text("更新:")
-                        .gridColumnAlignment(.trailing)
-                        .foregroundColor(.secondary)
-                    
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button("检查更新") {
-                            // 检查更新的操作
+                VStack(spacing: 6) {
+                    // 支持选项
+                    HStack {
+                        Text("支持:")
+                            .foregroundColor(.secondary)
+                        
+                        Button("发送反馈") {
+                            sendFeedbackEmail()
                         }
-                        .buttonStyle(.link)
+                        .buttonStyle(.bordered)  // 使用macOS原生按钮样式
+                        .controlSize(.small)
+                    }
+                    .frame(width: 250)
+                    
+                    // 更新选项
+                    VStack(spacing: 4) {
+                        HStack {
+                            Text("更新:")
+                                .foregroundColor(.secondary)
+                            
+                            Button("检查更新") {
+                                // 检查更新的操作
+                            }
+                            .buttonStyle(.bordered)  // 使用macOS原生按钮样式
+                            .controlSize(.small)
+                        }
                         
                         Text("当前版本: 0.1.0")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
-                }
-                
-                // 退出选项
-                GridRow {
-                    Text("退出:")
-                        .gridColumnAlignment(.trailing)
-                        .foregroundColor(.secondary)
+                    .frame(width: 250)
                     
-                    Button("退出 FishCopy") {
-                        NSApplication.shared.terminate(nil)
+                    // 退出选项
+                    HStack {
+                        Text("退出:")
+                            .foregroundColor(.secondary)
+                        
+                        Button("退出 FishCopy") {
+                            NSApplication.shared.terminate(nil)
+                        }
+                        .buttonStyle(.bordered)  // 使用macOS原生按钮样式
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.link)
+                    .frame(width: 250)
                 }
+                .padding(.top, 4)
             }
+            .frame(maxWidth: .infinity)  // 确保容器占满可用宽度
+            .padding(.vertical, 6)
         }
     }
     
