@@ -846,7 +846,7 @@ struct StatusBarMenuView: View {
         
         // 添加剪贴板监视间隔子菜单
         let intervalSubmenu = NSMenu()
-        for interval in [0.5, 1.0, 2.0, 5.0] {
+        for interval in [0.1, 0.5, 1.0, 2.0, 5.0] {
             let item = NSMenuItem(
                 title: "\(interval)秒",
                 action: #selector(NSApp.sendAction(_:to:from:)),

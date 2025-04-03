@@ -55,7 +55,7 @@ struct FishCopyApp: App {
             "launchAtStartup": true,
             "enableSoundEffects": true,
             "showSourceAppIcon": true,
-            "monitoringInterval": 0.5
+            "monitoringInterval": 0.1
         ]
         
         UserDefaults.standard.register(defaults: defaultValues)
