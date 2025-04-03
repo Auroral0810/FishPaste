@@ -1,0 +1,148 @@
+name: Build and Release macOS App (Advanced)
+
+on:
+  push:
+    tags:
+      - 'v*' # 当推送以v开头的标签时触发工作流
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+          
+      - name: Install create-dmg
+        run: brew install create-dmg
+        
+      - name: Setup Code Signing
+        # 这里需要设置你的代码签名证书和配置文件
+        # 对于公开项目，建议使用GitHub Secrets存储敏感信息
+        # 以下是一个示例，你需要根据实际情况修改
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # 如果没有配置证书，则跳过签名步骤
+          if [ -z "$CERTIFICATE_BASE64" ]; then
+            echo "没有提供代码签名证书，将跳过签名步骤"
+            exit 0
+          fi
+          
+          # 创建临时密钥链
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          
+          # 导入证书到密钥链
+          echo $CERTIFICATE_BASE64 | base64 --decode > certificate.p12
+          security import certificate.p12 -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          
+          # 允许代理使用代码签名证书
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+        
+      - name: Update Team ID in ExportOptions.plist
+        run: |
+          # 替换ExportOptions.plist中的YOUR_TEAM_ID为实际的Team ID
+          # 如果设置了TEAM_ID环境变量，则使用它，否则保持原样
+          if [ ! -z "${{ secrets.TEAM_ID }}" ]; then
+            sed -i '' "s/YOUR_TEAM_ID/${{ secrets.TEAM_ID }}/g" ExportOptions.plist
+          fi
+          
+      - name: Archive macOS App
+        run: |
+          # 使用xcodebuild archive命令创建归档
+          xcodebuild clean archive \
+            -project FishCopy.xcodeproj \
+            -scheme FishCopy \
+            -configuration Release \
+            -archivePath build/FishCopy.xcarchive
+            
+      - name: Export macOS App
+        run: |
+          # 从归档中导出应用
+          xcodebuild -exportArchive \
+            -archivePath build/FishCopy.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export
+            
+          # 打印导出目录内容
+          ls -la build/export
+          
+          # 将应用复制到更方便的位置
+          mkdir -p artifacts
+          cp -R build/export/FishCopy.app artifacts/
+        
+      - name: Create DMG
+        run: |
+          # 创建DMG文件
+          create-dmg \
+            --volname "FishCopy" \
+            --volicon "FishCopy/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png" \
+            --window-pos 200 120 \
+            --window-size 800 500 \
+            --icon-size 100 \
+            --icon "FishCopy.app" 200 190 \
+            --hide-extension "FishCopy.app" \
+            --app-drop-link 600 185 \
+            "artifacts/FishCopy.dmg" \
+            "artifacts/FishCopy.app"
+            
+          # 如果上面的命令失败，尝试简化版本
+          if [ $? -ne 0 ]; then
+            echo "尝试简化DMG创建方法..."
+            create-dmg "artifacts/FishCopy.dmg" "artifacts/FishCopy.app"
+          fi
+          
+      - name: Notarize App (optional)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        if: ${{ env.APPLE_ID != '' && env.APPLE_PASSWORD != '' }}
+        run: |
+          # 将DMG文件上传到Apple公证服务
+          xcrun notarytool submit artifacts/FishCopy.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+            
+          # 添加公证票据到DMG
+          xcrun stapler staple artifacts/FishCopy.dmg
+          
+      - name: Extract Version from Tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/FishCopy.dmg
+          name: FishCopy ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            FishCopy ${{ steps.get_version.outputs.VERSION }} 发布
+            
+            ## 下载
+            - [FishCopy.dmg](FishCopy.dmg) - macOS应用安装包
+            
+            ## 安装方法
+            1. 下载DMG文件
+            2. 双击打开DMG文件
+            3. 将FishCopy拖入Applications文件夹
+            4. 从应用程序文件夹启动FishCopy
+            
+            ## 版本变更
+            - 此处列出新版本的主要变更和功能更新
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

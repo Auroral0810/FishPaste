@@ -1,0 +1,79 @@
+name: Build and Release macOS App
+
+on:
+  push:
+    tags:
+      - 'v*' # 当推送以v开头的标签时触发工作流
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+          
+      - name: Install create-dmg
+        run: brew install create-dmg
+        
+      - name: Build macOS App
+        run: |
+          # 构建应用
+          xcodebuild -project FishCopy.xcodeproj -scheme FishCopy -configuration Release -derivedDataPath build
+          
+          # 打印构建目录内容
+          ls -la build/Build/Products/Release
+          
+          # 将应用复制到更方便的位置
+          mkdir -p artifacts
+          cp -R build/Build/Products/Release/FishCopy.app artifacts/
+          
+      - name: Create DMG
+        run: |
+          # 创建DMG文件
+          create-dmg \
+            --volname "FishCopy" \
+            --volicon "FishCopy/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" \
+            --window-pos 200 120 \
+            --window-size 800 500 \
+            --icon-size 100 \
+            --icon "FishCopy.app" 200 190 \
+            --hide-extension "FishCopy.app" \
+            --app-drop-link 600 185 \
+            "artifacts/FishCopy.dmg" \
+            "artifacts/FishCopy.app"
+            
+          # 如果上面的命令失败，尝试简化版本
+          if [ $? -ne 0 ]; then
+            echo "尝试简化DMG创建方法..."
+            create-dmg "artifacts/FishCopy.dmg" "artifacts/FishCopy.app"
+          fi
+          
+      - name: Extract Version from Tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/FishCopy.dmg
+          name: FishCopy ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            FishCopy ${{ steps.get_version.outputs.VERSION }} 发布
+            
+            ## 下载
+            - [FishCopy.dmg](FishCopy.dmg) - macOS应用安装包
+            
+            ## 安装方法
+            1. 下载DMG文件
+            2. 双击打开DMG文件
+            3. 将FishCopy拖入Applications文件夹
+            4. 从应用程序文件夹启动FishCopy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

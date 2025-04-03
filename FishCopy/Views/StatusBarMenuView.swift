@@ -65,6 +65,9 @@ struct StatusBarMenuView: View {
     // 添加置顶窗口状态变量
     @State private var isWindowAlwaysOnTop = false
     
+    // 修改RichClipboardItemView结构体中的hexColors变量类型
+    @State private var hexColors: [(String, NSColor, String, String)]? = nil  // (标题, 颜色, 样本文本, 来源)
+    
     var body: some View {
         VStack(spacing: 0) {
             // 顶部工具栏
@@ -1489,20 +1492,22 @@ struct ClipboardItemView: View {
             return "\(item.imageCount)张图片"
         } else if item.displayImage != nil {
             return "图片"
-        } else if let urls = item.fileURLs, !urls.isEmpty {
-            return urls.first!.lastPathComponent
+        } else if let urls = item.fileURLs, !urls.isEmpty, let firstUrl = urls.first {
+            return firstUrl.lastPathComponent
         } else {
             return "未知内容"
         }
     }
 }
 
-// 丰富视图组件
+// 丰富版本的剪贴板内容视图
 struct RichClipboardItemView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     let item: ClipboardContent
     let isSelected: Bool
     @State private var localTitle: String? = nil
+    @State private var hexColors: [(String, NSColor, String, String)]? = nil  // (标题, 颜色, 样本文本, 来源)
+    @State private var isColorInfoExpanded: Bool = false  // 是否展开颜色详情
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1541,57 +1546,169 @@ struct RichClipboardItemView: View {
                 }
                 
                 // 显示图片数量指示器
-                if item.imageCount > 1 {
-                    Text("\(item.imageCount)张图片")
-                        .font(.caption)
-                        .foregroundColor(.blue)
+                if let images = item.images, images.count > 1 {
+                    Text("\(images.count)张")
+                        .font(.caption2)
                         .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.2))
-                        .cornerRadius(4)
+                        .padding(.vertical, 1)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(3)
                 }
                 
-                Text(item.timestamp, style: .time)
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                // 如果有颜色数据，显示展开/折叠按钮
+                if let colors = hexColors, !colors.isEmpty {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isColorInfoExpanded.toggle()
+                        }
+                    }) {
+                        Image(systemName: isColorInfoExpanded ? "chevron.up" : "chevron.down")
+                            .foregroundColor(.gray)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
             
-            // 添加更多预览内容
-            if let title = localTitle ?? item.title, !title.isEmpty, let text = item.text {
-                // 有标题且有文本时，显示文本预览
-                Text(text)
+            // 第二行：内容预览
+            if !hasTitle() {
+                Text(getPreviewText())
                     .font(.caption)
                     .foregroundColor(.gray)
                     .lineLimit(2)
-                    .padding(.leading, 28)
-            } else if let text = item.text {
-                // 无标题但有文本时，显示文本预览
-                Text(text)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .lineLimit(2)
-                    .padding(.leading, 28)
-            } else if item.imageCount == 1, let image = item.displayImage {
-                // 图片内容显示缩略图
-                HStack {
-                    Spacer()
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 60)
-                        .cornerRadius(4)
-                    Spacer()
-                }
-                .padding(.top, 4)
+                    .padding(.leading, 24)
             }
+            
+            // 如果检测到了HEX颜色，显示颜色预览
+            if let colors = hexColors, !colors.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    // 颜色预览标题
+                    HStack {
+                        Text("颜色")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        
+                        Text("\(colors.count)种")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.3))
+                            .cornerRadius(3)
+                            .foregroundColor(.white)
+                    }
+                    .padding(.leading, 24)
+                    
+                    // 颜色预览区域
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(0..<colors.count, id: \.self) { index in
+                                let (title, color, sample, source) = colors[index]
+                                VStack(spacing: 2) {
+                                    // 颜色预览方块
+                                    Rectangle()
+                                        .fill(Color(nsColor: color))
+                                        .frame(width: 28, height: 28)
+                                        .cornerRadius(4)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                                        )
+                                        .shadow(color: Color.black.opacity(0.2), radius: 1, x: 0, y: 1)
+                                        .contextMenu {
+                                            Button("复制颜色代码") {
+                                                copyColorToClipboard(title)
+                                            }
+                                            
+                                            if !sample.isEmpty {
+                                                Button("复制样本文本") {
+                                                    copyColorToClipboard(sample)
+                                                }
+                                            }
+                                            
+                                            Button("查看颜色详情") {
+                                                showColorDetails(color)
+                                            }
+                                        }
+                                    
+                                    // 颜色代码
+                                    Text(title)
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.gray)
+                                    
+                                    // 如果有样本文本且展开状态，显示样本
+                                    if isColorInfoExpanded && !sample.isEmpty {
+                                        Text(sample)
+                                            .font(.system(size: 8))
+                                            .lineLimit(1)
+                                            .foregroundColor(Color(nsColor: color))
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.leading, 24)
+                        .padding(.top, 2)
+                    }
+                    .frame(height: getColorPreviewHeight())
+                    
+                    // 如果展开状态，显示更多颜色信息
+                    if isColorInfoExpanded {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(0..<min(colors.count, 3), id: \.self) { index in
+                                let (title, color, sample, source) = colors[index]
+                                HStack(spacing: 6) {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color(nsColor: color))
+                                        .frame(width: 12, height: 12)
+                                    
+                                    Text(title)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+                                    
+                                    if !sample.isEmpty {
+                                        Text(sample.prefix(15))
+                                            .font(.system(size: 10))
+                                            .lineLimit(1)
+                                            .foregroundColor(Color(nsColor: color))
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.leading, 24)
+                    }
+                }
+            }
+            
+            // 第三行：时间与来源
+            HStack {
+                // 时间信息
+                Text(item.timestamp, style: .relative)
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+                
+                if let appName = item.sourceApp?.name {
+                    Text("·")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                    
+                    // 来源应用名称
+                    Text(appName)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+                
+                Spacer()
+            }
+            .padding(.leading, 24)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .onAppear {
             // 初始化本地标题
             localTitle = item.title
+            
+            // 提取HEX颜色信息
+            extractHexColors()
             
             // 监听通知
             setupNotificationObservers()
@@ -1599,6 +1716,97 @@ struct RichClipboardItemView: View {
         .onDisappear {
             // 移除通知监听
             removeNotificationObservers()
+        }
+    }
+    
+    // 获取颜色预览区域高度
+    private func getColorPreviewHeight() -> CGFloat {
+        let baseHeight: CGFloat = 40  // 基础高度
+        
+        // 如果展开并且有样本文本，增加高度
+        if isColorInfoExpanded, let colors = hexColors, colors.contains(where: { !$0.2.isEmpty }) {
+            return baseHeight + 16
+        }
+        
+        return baseHeight
+    }
+    
+    // 复制颜色代码到剪贴板
+    private func copyColorToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+    
+    // 显示颜色详情
+    private func showColorDetails(_ color: NSColor) {
+        let colorHex = color.toHexString(includeAlpha: false)
+        
+        let r = Int(round(color.redComponent * 255))
+        let g = Int(round(color.greenComponent * 255))
+        let b = Int(round(color.blueComponent * 255))
+        
+        let infoString = """
+        颜色: \(colorHex)
+        RGB: \(r), \(g), \(b)
+        HSB: \(Int(round(color.hueComponent * 360)))°, \(Int(round(color.saturationComponent * 100)))%, \(Int(round(color.brightnessComponent * 100)))%
+        """
+        
+        let alert = NSAlert()
+        alert.messageText = "颜色详情"
+        alert.informativeText = infoString
+        alert.addButton(withTitle: "复制")
+        alert.addButton(withTitle: "关闭")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            copyColorToClipboard(infoString)
+        }
+    }
+    
+    // 提取HEX颜色信息
+    private func extractHexColors() {
+        if let hexColorData = item.metadata["hexColors"] as? [String: [String: Any]] {
+            var colors: [(String, NSColor, String, String)] = [] // (标题, 颜色, 样本, 来源)
+            
+            // 按索引顺序遍历元数据中的颜色信息
+            let sortedKeys = hexColorData.keys.sorted { Int($0) ?? 0 < Int($1) ?? 0 }
+            
+            for key in sortedKeys {
+                if let colorInfo = hexColorData[key] {
+                    let source = colorInfo["source"] as? String ?? "unknown"
+                    
+                    if let red = colorInfo["red"] as? CGFloat,
+                       let green = colorInfo["green"] as? CGFloat,
+                       let blue = colorInfo["blue"] as? CGFloat,
+                       let alpha = colorInfo["alpha"] as? CGFloat {
+                        
+                        let color = NSColor(red: red, green: green, blue: blue, alpha: alpha)
+                        
+                        // 确定标题和样本
+                        let title: String
+                        let sample: String
+                        
+                        if source == "hexCode", let code = colorInfo["code"] as? String {
+                            title = code
+                            sample = ""
+                        } else if source == "richText" {
+                            // 为富文本颜色生成HEX代码
+                            title = color.toHexString(includeAlpha: false) ?? "#000000"
+                            sample = colorInfo["sample"] as? String ?? ""
+                        } else {
+                            title = color.toHexString(includeAlpha: false) ?? "#000000"
+                            sample = ""
+                        }
+                        
+                        colors.append((title, color, sample, source))
+                    }
+                }
+            }
+            
+            if !colors.isEmpty {
+                self.hexColors = colors
+            }
         }
     }
     
@@ -1643,7 +1851,7 @@ struct RichClipboardItemView: View {
         )
     }
     
-    // 这里复用与ClipboardItemView相同的辅助方法
+    // 内容类型图标
     private var contentTypeIcon: some View {
         Group {
             if let fileURLs = item.fileURLs, !fileURLs.isEmpty {
@@ -1678,6 +1886,7 @@ struct RichClipboardItemView: View {
         }
     }
     
+    // 预览文本
     private func getPreviewText() -> String {
         if let text = item.text {
             return text.prefix(30).replacingOccurrences(of: "\n", with: " ") + (text.count > 30 ? "..." : "")
@@ -1685,197 +1894,18 @@ struct RichClipboardItemView: View {
             return "\(item.imageCount)张图片"
         } else if item.displayImage != nil {
             return "图片"
-        } else if let urls = item.fileURLs, !urls.isEmpty {
-            return urls.first!.lastPathComponent
+        } else if let urls = item.fileURLs, !urls.isEmpty, let firstUrl = urls.first {
+            return firstUrl.lastPathComponent
         } else {
             return "未知内容"
         }
     }
-}
-
-// 修改网格视图组件 - 修复语法错误
-struct GridClipboardItemView: View {
-    @EnvironmentObject var clipboardManager: ClipboardManager
-    let item: ClipboardContent
-    let isSelected: Bool
     
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 内容预览区域
-            ZStack {
-                Rectangle()
-                    .fill(Color(white: 0.2))
-                    .frame(width: 130, height: 110)
-                    .cornerRadius(6)
-                
-                if item.imageCount == 1, let image = item.displayImage {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 130, height: 110)
-                        .cornerRadius(6)
-                        .clipped()
-                } else if item.imageCount > 1, let images = item.images {
-                    // 多图片网格布局
-                    VStack(alignment: .center) {
-                        HStack(spacing: 2) {
-                            // 显示前4张图片
-                            ForEach(0..<min(2, images.count), id: \.self) { index in
-                                Image(nsImage: images[index])
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 64, height: 54)
-                                    .cornerRadius(4)
-                                    .clipped()
-                            }
-                        }
-                        
-                        if images.count > 2 {
-                            HStack(spacing: 2) {
-                                ForEach(2..<min(4, images.count), id: \.self) { index in
-                                    Image(nsImage: images[index])
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 64, height: 54)
-                                        .cornerRadius(4)
-                                        .clipped()
-                                }
-                                
-                                if images.count == 3 {
-                                    Rectangle()
-                                        .fill(Color.clear)
-                                        .frame(width: 64, height: 54)
-                                }
-                            }
-                        }
-                    }
-                    .frame(width: 130, height: 110)
-                } else if let text = item.text {
-                    // 文本内容预览
-                    VStack {
-                        Text(text)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                            .lineLimit(6)
-                            .padding(8)
-                    }
-                    .frame(width: 130, height: 110, alignment: .topLeading)
-                }
-                
-                // 选中状态覆盖层
-                if isSelected {
-                    ZStack {
-                        Color.blue.opacity(0.3)
-                        
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 30))
-                            .foregroundColor(.white)
-                    }
-                    .cornerRadius(6)
-                }
-                
-                // 钉选指示器 - 右上角
-                if item.isPinned {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Image(systemName: "pin.fill")
-                                .foregroundColor(.orange)
-                                .font(.system(size: 12))
-                                .padding(6)
-                                .background(Color.black.opacity(0.5))
-                                .clipShape(Circle())
-                        }
-                        Spacer()
-                    }
-                    .padding(4)
-                }
-            }
-            
-            // 底部信息
-            VStack(alignment: .leading, spacing: 2) {
-                // 如果有标题，优先显示标题
-                if let title = item.title, !title.isEmpty {
-                    Text(title)
-                        .font(.system(size: 10))
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                } else {
-                    // 显示内容预览
-                    HStack(spacing: 4) {
-                        contentTypeIcon
-                            .font(.system(size: 10))
-                            .foregroundColor(.white)
-                            .frame(width: 12, height: 12)
-                        
-                        if let text = item.text, text.count > 15 {
-                            Text(text.prefix(15) + "...")
-                                .font(.system(size: 9))
-                                .foregroundColor(.white)
-                                .lineLimit(1)
-                        } else if item.imageCount > 0 {
-                            Text(item.imageCount > 1 ? "\(item.imageCount)张图片" : "图片")
-                                .font(.system(size: 9))
-                                .foregroundColor(.white)
-                        }
-                    }
-                }
-                
-                // 时间戳
-                Text(item.timestamp, style: .time)
-                    .font(.system(size: 8))
-                    .foregroundColor(.gray)
-            }
-            .padding(.top, 4)
-            .padding(.horizontal, 4)
-        }
-        .contentShape(Rectangle())
-        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
-        )
-    }
-    
-    // 内容类型图标 - 移出闭包
-    var contentTypeIcon: some View {
-        Group {
-            if let fileURLs = item.fileURLs, !fileURLs.isEmpty {
-                // 对于文件，直接使用文件的应用程序图标
-                if let image = item.image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 24, height: 24)
-                } else {
-                    // 如果没有预加载的图标，使用通用文件夹图标
-                    Image(systemName: "folder")
-                        .foregroundColor(.orange)
-                }
-            } else if item.displayImage != nil {
-                // 图片类型
-                Image(systemName: item.imageCount > 1 ? "photo.on.rectangle" : "photo")
-                    .foregroundColor(.blue)
-            } else if let text = item.text, text.hasPrefix("http") {
-                // 链接类型
-                Image(systemName: "link")
-                    .foregroundColor(.purple)
-            } else if item.text != nil {
-                // 文本类型
-                Image(systemName: "doc.text")
-                    .foregroundColor(.green)
-            } else {
-                // 未知类型
-                Image(systemName: "questionmark.square")
-                    .foregroundColor(.gray)
-            }
-        }
+    // 检查是否有标题
+    private func hasTitle() -> Bool {
+        return item.title != nil && !item.title!.isEmpty
     }
 }
-
-// 分类管理器视图
 
 // 自定义按钮样式 - 提供点击反馈效果
 struct EffectButtonStyle: ButtonStyle {
@@ -1906,6 +1936,200 @@ extension NSMenuItem {
         if let closure = NSMenuItem.actionClosures[self] {
             closure()
         }
+    }
+}
+
+// 网格样式的剪贴板项目视图
+struct GridClipboardItemView: View {
+    @EnvironmentObject var clipboardManager: ClipboardManager
+    let item: ClipboardContent
+    let isSelected: Bool
+    @State private var localTitle: String? = nil
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // 顶部指示器区域
+            HStack {
+                // 选中状态指示器
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 14))
+                }
+                
+                Spacer()
+                
+                // 钉选指示器
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 12))
+                }
+            }
+            .frame(height: 16)
+            .padding(.horizontal, 8)
+            
+            // 内容预览区域
+            ZStack {
+                // 背景
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.black.opacity(0.3))
+                
+                // 内容预览
+                Group {
+                    if let image = item.displayImage {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 70, height: 70)
+                    } else if let text = item.text {
+                        if text.hasPrefix("http") {
+                            // 链接预览
+                            VStack {
+                                Image(systemName: "link")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.purple)
+                                
+                                Text(text)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.gray)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding(8)
+                        } else {
+                            // 文本预览
+                            Text(text)
+                                .font(.system(size: 10))
+                                .foregroundColor(.white)
+                                .lineLimit(6)
+                                .padding(6)
+                        }
+                    } else if let urls = item.fileURLs, !urls.isEmpty {
+                        // 文件预览
+                        VStack {
+                            Image(systemName: "doc.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.blue)
+                            
+                            Text(urls.first?.lastPathComponent ?? "")
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(8)
+                    } else {
+                        // 未知内容
+                        Image(systemName: "questionmark.square")
+                            .font(.system(size: 24))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(height: 80)
+            
+            // 底部信息区域
+            VStack(alignment: .leading, spacing: 2) {
+                // 标题或内容类型
+                if let title = localTitle ?? item.title, !title.isEmpty {
+                    Text(title)
+                        .font(.system(size: 11))
+                        .fontWeight(.medium)
+                        .foregroundColor(Color(hex: "#49b1f5"))
+                        .lineLimit(1)
+                } else {
+                    Text(getContentTypeText())
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+                
+                // 时间戳
+                Text(item.timestamp, style: .time)
+                    .font(.system(size: 9))
+                    .foregroundColor(.gray)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+        }
+        .padding(4)
+        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isSelected ? Color.blue : Color.gray.opacity(0.2), lineWidth: isSelected ? 2 : 1)
+        )
+        .onAppear {
+            // 初始化本地标题
+            localTitle = item.title
+            
+            // 监听通知
+            setupNotificationObservers()
+        }
+        .onDisappear {
+            // 移除通知监听
+            removeNotificationObservers()
+        }
+    }
+    
+    // 获取内容类型文本
+    private func getContentTypeText() -> String {
+        if item.displayImage != nil {
+            return item.imageCount > 1 ? "\(item.imageCount)张图片" : "图片"
+        } else if let text = item.text {
+            if text.hasPrefix("http") {
+                return "链接"
+            } else {
+                return "文本"
+            }
+        } else if let urls = item.fileURLs, !urls.isEmpty {
+            return urls.count > 1 ? "\(urls.count)个文件" : "文件"
+        } else {
+            return "未知类型"
+        }
+    }
+    
+    // 设置通知监听
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("ClipboardItemUpdated"),
+            object: nil,
+            queue: .main
+        ) { notification in
+            // 检查更新的是否是当前项目
+            if let userInfo = notification.userInfo,
+               let updatedID = userInfo["itemID"] as? UUID,
+               updatedID == item.id {
+                // 强制刷新本地标题
+                self.localTitle = self.clipboardManager.getItemTitle(for: item.id)
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("RefreshClipboardView"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            // 强制刷新本地标题
+            self.localTitle = self.clipboardManager.getItemTitle(for: item.id)
+        }
+    }
+    
+    // 移除通知监听
+    private func removeNotificationObservers() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("ClipboardItemUpdated"),
+            object: nil
+        )
+        
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("RefreshClipboardView"),
+            object: nil
+        )
     }
 }
 

@@ -1,0 +1,107 @@
+# macOS系统文件
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Xcode
+#
+# 构建产物
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+*.xcuserstate
+project.xcworkspace/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+#
+# 添加此行以忽略所有Swift Package Manager源目录
+.build/
+.swiftpm/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj
+
+# CocoaPods
+#
+# 如果使用CocoaPods，取消注释下面的行
+Pods/
+
+Carthage
+#
+# 如果使用Carthage，取消注释下面的行
+Carthage/Build/
+
+fastlane
+#
+# 如果使用fastlane，取消注释下面的行
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# 代码覆盖率
+coverage/
+
+# 敏感信息
+*.p12
+*.mobileprovision
+*.cer
+*.certSigningRequest
+ExportOptions.plist
+ExportOptionsForCI.plist
+
+# 编译产物
+*.o
+*.LinkFileList
+*.gcno
+*.gcda
+
+# 应用程序打包
+artifacts/
+*.app
+*.dmg
+*.pkg
+
+# 第三方库
+vendor/
+
+# 环境文件
+.env
+.env.*
+
+# 日志文件
+logs/
+*.log
+
+# IDE文件
+.idea/
+.vscode/
+
+# Swift PM发布过程中自动生成的文件
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc 

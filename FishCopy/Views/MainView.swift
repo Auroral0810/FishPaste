@@ -137,7 +137,8 @@ struct MainView: View {
                     Spacer()
                     
                     // 使用自定义应用图标
-                    if let appIcon = NSImage(contentsOfFile: Bundle.main.path(forResource: "appLogo_256x256", ofType: "png") ?? "") {
+                    if let imagePath = Bundle.main.path(forResource: "appLogo_256x256", ofType: "png"),
+                       let appIcon = NSImage(contentsOfFile: imagePath) {
                         Image(nsImage: appIcon)
                             .resizable()
                             .aspectRatio(contentMode: .fit)

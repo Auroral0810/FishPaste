@@ -289,6 +289,10 @@ struct SettingsView: View {
     @State private var conflictInfo: (shortcut: String, action: String, conflictWith: String)? = nil
     @State private var previousShortcutValue: String? = nil // 保存录制前的快捷键值
     
+    // 在SettingsView结构体中添加状态变量，与其他状态变量放在一起
+    @State private var useGPUAcceleration = UserDefaults.standard.bool(forKey: "useGPUAcceleration")
+    @State private var enableHEXColorRecognition = UserDefaults.standard.bool(forKey: "enableHEXColorRecognition")
+    
     let statusIconModes = ["出现在状态栏图标旁", "重置状态"]
     let pasteFormats = ["粘贴为原始文本", "保持格式粘贴", "智能粘贴"]
     let deleteOptions = ["永不", "一周以后", "一个月以后", "三个月以后"]
@@ -1482,13 +1486,13 @@ struct SettingsView: View {
                     
                     GroupBox(label: Text("功能预览").font(.headline)) {
                         VStack(alignment: .leading, spacing: 15) {
-                            Toggle("启用AI智能分类", isOn: .constant(false))
+                            Toggle("自动获取链接的标题", isOn: .constant(false))
                                 .toggleStyle(.checkbox)
                             
                             Toggle("启用模糊搜索", isOn: .constant(false))
                                 .toggleStyle(.checkbox)
                             
-                            Toggle("允许自定义主题", isOn: .constant(false))
+                            Toggle("新的\"置顶窗口功能\"", isOn: .constant(false))
                                 .toggleStyle(.checkbox)
                         }
                         .padding()
@@ -1497,11 +1501,19 @@ struct SettingsView: View {
                     
                     GroupBox(label: Text("性能选项").font(.headline)) {
                         VStack(alignment: .leading, spacing: 15) {
-                            Toggle("使用GPU加速图像处理", isOn: .constant(false))
+                            Toggle("使用GPU加速图像处理", isOn: $useGPUAcceleration)
                                 .toggleStyle(.checkbox)
+                                .onChange(of: useGPUAcceleration) { newValue in
+                                    UserDefaults.standard.set(newValue, forKey: "useGPUAcceleration")
+                                    applyGPUAccelerationSetting(newValue)
+                                }
                             
-                            Toggle("后台保持活动状态", isOn: .constant(false))
+                            Toggle("HEX颜色识别", isOn: $enableHEXColorRecognition)
                                 .toggleStyle(.checkbox)
+                                .onChange(of: enableHEXColorRecognition) { newValue in
+                                    UserDefaults.standard.set(newValue, forKey: "enableHEXColorRecognition")
+                                    applyHEXColorRecognitionSetting(newValue)
+                                }
                         }
                         .padding()
                     }
@@ -1770,6 +1782,40 @@ struct SettingsView: View {
         clipboardManager.updateClipboardRules(rules: rules)
         
         print("已更新剪贴板规则设置")
+    }
+    
+    // 应用GPU加速设置
+    private func applyGPUAccelerationSetting(_ enabled: Bool) {
+        if enabled {
+            print("启用GPU加速图像处理")
+            // 在这里实现GPU加速处理的逻辑
+            if let processingConfig = clipboardManager.getImageProcessingConfig() {
+                var updatedConfig = processingConfig
+                updatedConfig.useGPU = true
+                clipboardManager.updateImageProcessingConfig(updatedConfig)
+            }
+        } else {
+            print("禁用GPU加速图像处理")
+            // 在这里实现禁用GPU加速的逻辑
+            if let processingConfig = clipboardManager.getImageProcessingConfig() {
+                var updatedConfig = processingConfig
+                updatedConfig.useGPU = false
+                clipboardManager.updateImageProcessingConfig(updatedConfig)
+            }
+        }
+    }
+    
+    // 应用HEX颜色识别设置
+    private func applyHEXColorRecognitionSetting(_ enabled: Bool) {
+        if enabled {
+            print("启用HEX颜色识别")
+            // 在这里实现颜色识别的逻辑
+            clipboardManager.setHEXColorRecognitionEnabled(true)
+        } else {
+            print("禁用HEX颜色识别")
+            // 在这里实现禁用颜色识别的逻辑
+            clipboardManager.setHEXColorRecognitionEnabled(false)
+        }
     }
 }
 

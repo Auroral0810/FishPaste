@@ -33,6 +33,9 @@ class ClipboardContent: Identifiable {
         return sourceApp?.bundleIdentifier
     }
     
+    // 在ClipboardContent类的属性中添加metadata字典
+    var metadata: [String: Any] = [:]
+    
     init(id: UUID = UUID(), text: String? = nil, image: NSImage? = nil, images: [NSImage]? = nil, fileURLs: [URL]? = nil, 
          category: String? = nil, timestamp: Date = Date(), isPinned: Bool = false, title: String? = nil,
          sourceApp: (String?, String?, NSImage?)? = nil,

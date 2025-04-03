@@ -86,6 +86,11 @@ class ClipboardManager: ObservableObject {
     private let userActivityWillContinueNotification = Notification.Name("com.yuyunfeng.FishCopy.UserActivityWillContinue")
     private let userActivityDidUpdateNotification = Notification.Name("com.yuyunfeng.FishCopy.UserActivityDidUpdate")
     
+    // 图像处理配置
+    private var imageProcessingConfig = ImageProcessingConfig()
+    // HEX颜色识别开关
+    private var hexColorRecognitionEnabled: Bool = UserDefaults.standard.bool(forKey: "enableHEXColorRecognition")
+    
     init() {
         // 从UserDefaults加载保存的监控间隔设置
         if let savedInterval = UserDefaults.standard.object(forKey: "monitoringInterval") as? Double {
@@ -925,6 +930,33 @@ class ClipboardManager: ObservableObject {
             content.text = text
             hasContent = true
             print("从剪贴板读取文本: \(text.prefix(min(20, text.count)))...")
+            
+            // 检测HEX颜色代码（如果功能已启用）
+            if hexColorRecognitionEnabled {
+                if let hexColors = detectHEXColorCodes(in: text) {
+                    print("检测到\(hexColors.count)个HEX颜色代码")
+                    
+                    // 存储检测到的颜色信息
+                    var hexColorData: [String: [String: Any]] = [:]
+                    
+                    for (index, colorInfo) in hexColors.enumerated() {
+                        let colorCode = colorInfo.0
+                        let color = colorInfo.1
+                        
+                        // 将颜色信息存储为字典
+                        hexColorData["\(index)"] = [
+                            "code": colorCode,
+                            "red": color.redComponent,
+                            "green": color.greenComponent,
+                            "blue": color.blueComponent,
+                            "alpha": color.alphaComponent
+                        ]
+                    }
+                    
+                    // 将颜色信息保存到剪贴板内容的元数据中
+                    content.metadata["hexColors"] = hexColorData
+                }
+            }
         }
         
         // === 获取剪贴板图片 ===
@@ -1026,12 +1058,20 @@ class ClipboardManager: ObservableObject {
     
     // 辅助方法: 创建安全图像拷贝
     private func createSafeImage(from image: NSImage) -> NSImage? {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+        guard let tiffData = image.tiffRepresentation else {
             return nil
         }
-        return NSImage(data: pngData)
+        
+        // 创建新的图像实例
+        if let newImage = NSImage(data: tiffData) {
+            // 如果启用了GPU加速，使用GPU处理图像
+            if imageProcessingConfig.useGPU {
+                return processImageWithGPUIfEnabled(newImage)
+            }
+            return newImage
+        }
+        
+        return nil
     }
     
     // 辅助方法: 检查图像是否重复
@@ -2375,6 +2415,196 @@ class ClipboardManager: ObservableObject {
                 guard let self = self else { return }
                 print("重置Handoff会话状态")
                 self.isHandoffSessionActive = false
+            }
+        }
+    }
+    
+    // 图像处理配置结构体
+    struct ImageProcessingConfig {
+        var useGPU: Bool = false
+        var qualityLevel: Int = 3  // 1-5，默认为中等质量
+        var processingMethod: String = "standard"
+    }
+    
+    // 获取图像处理配置
+    func getImageProcessingConfig() -> ImageProcessingConfig? {
+        return imageProcessingConfig
+    }
+    
+    // 更新图像处理配置
+    func updateImageProcessingConfig(_ config: ImageProcessingConfig) {
+        self.imageProcessingConfig = config
+        print("已更新图像处理配置：GPU加速=\(config.useGPU), 质量=\(config.qualityLevel)")
+        
+        // 如果开启了GPU加速，可以在这里初始化相关资源
+        if config.useGPU {
+            initializeGPUResources()
+        }
+    }
+    
+    // 初始化GPU资源
+    private func initializeGPUResources() {
+        // 实现GPU资源初始化的代码
+        print("正在初始化GPU资源用于图像处理...")
+        // 在实际应用中，这里可能会初始化Metal或Core Image的上下文
+    }
+    
+    // 设置HEX颜色识别功能状态
+    func setHEXColorRecognitionEnabled(_ enabled: Bool) {
+        self.hexColorRecognitionEnabled = enabled
+        print("已设置HEX颜色识别功能状态：\(enabled ? "启用" : "禁用")")
+    }
+    
+    // 检测文本中的HEX颜色代码
+    func detectHEXColorCodes(in text: String) -> [(String, NSColor)]? {
+        // 如果功能未启用，返回nil
+        if !hexColorRecognitionEnabled {
+            return nil
+        }
+        
+        // 定义HEX颜色正则表达式 (#RGB, #RRGGBB, #RRGGBBAA)
+        let hexPattern = "#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})\\b"
+        
+        var results: [(String, NSColor)] = []
+        
+        do {
+            let regex = try NSRegularExpression(pattern: hexPattern, options: [])
+            let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
+            
+            for match in matches {
+                if let range = Range(match.range, in: text) {
+                    let hexCode = String(text[range])
+                    if let color = NSColor(hexString: hexCode) {
+                        results.append((hexCode, color))
+                    }
+                }
+            }
+        } catch {
+            print("正则表达式错误: \(error)")
+        }
+        
+        return results.isEmpty ? nil : results
+    }
+    
+    // 处理剪贴板中的图像时应用GPU加速(修改现有方法或添加新方法)
+    private func processImageWithGPUIfEnabled(_ image: NSImage) -> NSImage {
+        // 如果未启用GPU加速，直接返回原图像
+        if !imageProcessingConfig.useGPU {
+            return image
+        }
+        
+        print("使用GPU加速处理图像...")
+        
+        // 在这里实现GPU加速的图像处理逻辑
+        // 例如使用Metal或Core Image处理图像
+        
+        // 这里是示例实现，实际应用中应替换为真正的GPU处理代码
+        if let ciImage = CIImage(data: image.tiffRepresentation!) {
+            let context = CIContext(options: [.useSoftwareRenderer: false])
+            
+            // 创建基本的图像过滤器（这里仅作演示）
+            let filter = CIFilter(name: "CIColorControls")
+            filter?.setValue(ciImage, forKey: kCIInputImageKey)
+            filter?.setValue(1.0, forKey: kCIInputSaturationKey) // 保持原样
+            
+            if let outputImage = filter?.outputImage,
+               let cgImage = context.createCGImage(outputImage, from: outputImage.extent) {
+                return NSImage(cgImage: cgImage, size: image.size)
+            }
+        }
+        
+        // 如果处理失败，返回原图像
+        return image
+    }
+    
+    private func extractColorsFromRichText() {
+        // 检查是否启用了十六进制颜色识别
+        guard UserDefaults.standard.bool(forKey: "enableHexColorRecognition") else {
+            return
+        }
+        
+        // 确保当前有剪贴板内容
+        guard let currentContent = currentClipboardContent else {
+            return
+        }
+        
+        // 获取原有的颜色数据
+        var hexColorData: [String: [String: String]] = currentContent.metadata["hexColors"] as? [String: [String: String]] ?? [:]
+        
+        // 获取剪贴板的富文本数据
+        let pasteboard = NSPasteboard.general
+        
+        if let rtfData = pasteboard.data(forType: .rtf) ?? pasteboard.data(forType: NSPasteboard.PasteboardType("public.rtf")) {
+            do {
+                let attributedString = try NSAttributedString(data: rtfData,
+                                                           options: [.documentType: NSAttributedString.DocumentType.rtf],
+                                                           documentAttributes: nil)
+                
+                // 提取所有不同颜色
+                var uniqueColors = Set<String>()
+                var colorSamples: [String: String] = [:]
+                
+                attributedString.enumerateAttributes(in: NSRange(location: 0, length: attributedString.length), options: []) { attributes, range, _ in
+                    if let color = attributes[.foregroundColor] as? NSColor {
+                        // 转换为标准RGB色彩空间以确保一致的颜色表示
+                        let rgbColor = color.usingColorSpace(.sRGB) ?? color
+                        
+                        // 忽略黑色和白色（常用于普通文本）
+                        if (rgbColor.redComponent < 0.1 && rgbColor.greenComponent < 0.1 && rgbColor.blueComponent < 0.1) ||
+                           (rgbColor.redComponent > 0.9 && rgbColor.greenComponent > 0.9 && rgbColor.blueComponent > 0.9) {
+                            return
+                        }
+                        
+                        let hexColor = rgbColor.toHexString(includeAlpha: false)
+                        
+                        // 添加到唯一颜色集合
+                        uniqueColors.insert(hexColor)
+                        
+                        // 获取颜色对应的文本作为样本
+                        let text = (attributedString.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        // 如果样本不为空，存储该样本或更新为更好的样本（非空或更长的样本）
+                        if !text.isEmpty {
+                            if let existingSample = colorSamples[hexColor] {
+                                // 保留更长的样本文本
+                                if text.count > existingSample.count {
+                                    colorSamples[hexColor] = text
+                                }
+                            } else {
+                                colorSamples[hexColor] = text
+                            }
+                        }
+                    }
+                }
+                
+                // 如果有颜色，保存到metadata中
+                if !uniqueColors.isEmpty {
+                    for hexColor in uniqueColors {
+                        let sampleText = colorSamples[hexColor] ?? ""
+                        
+                        // 为每种颜色创建或更新数据
+                        if hexColorData[hexColor] == nil {
+                            hexColorData[hexColor] = [
+                                "sampleText": sampleText,
+                                "source": "richText"
+                            ]
+                        } else if hexColorData[hexColor]?["sampleText"]?.isEmpty ?? true, !sampleText.isEmpty {
+                            // 更新样本文本（如果之前是空的）
+                            hexColorData[hexColor]?["sampleText"] = sampleText
+                        }
+                    }
+                    
+                    // 更新metadata
+                    currentContent.metadata["hexColors"] = hexColorData
+                    
+                    // 打印结果
+                    print("从富文本中提取了\(uniqueColors.count)个颜色:")
+                    for hexColor in uniqueColors {
+                        print("- 颜色: \(hexColor), 样本: \"\(colorSamples[hexColor] ?? "")\"")
+                    }
+                }
+            } catch {
+                print("解析富文本数据失败: \(error)")
             }
         }
     }
