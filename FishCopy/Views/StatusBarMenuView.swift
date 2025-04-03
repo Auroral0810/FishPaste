@@ -844,6 +844,14 @@ struct StatusBarMenuView: View {
         monitorToggleItem.action = #selector(ClipboardManager.toggleMonitoring)
         menu.addItem(monitorToggleItem)
         
+        // 添加强制iOS内容检测选项
+        let iosDetectionItem = NSMenuItem(title: "强制iOS内容检测模式", action: nil, keyEquivalent: "")
+        iosDetectionItem.target = clipboardManager
+        iosDetectionItem.setAction {
+            self.clipboardManager.detectIOSDeviceClipboard()
+        }
+        menu.addItem(iosDetectionItem)
+        
         // 添加剪贴板监视间隔子菜单
         let intervalSubmenu = NSMenu()
         for interval in [0.1, 0.5, 1.0, 2.0, 5.0] {

@@ -11,6 +11,7 @@ import SwiftData
 import AppKit
 import UniformTypeIdentifiers  // 添加 UTType 支持
 import ServiceManagement  // 添加 ServiceManagement 框架支持
+import Foundation.NSDistributedNotificationCenter
 
 // 剪贴板管理器：负责监控系统剪贴板变化和管理历史记录
 class ClipboardManager: ObservableObject {
@@ -36,6 +37,15 @@ class ClipboardManager: ObservableObject {
     private var convertLargeExcelToText: Bool = UserDefaults.standard.bool(forKey: "convertLargeExcelToText")
     private var ignoreSizeLimit: Double = Double(UserDefaults.standard.string(forKey: "ignoreSizeLimit") ?? "0.0") ?? 0.0
     
+    // 用于检测通用剪贴板的变量
+    private var recentChangeTimestamps: [Date] = []
+    private var lastActiveAppBundle: String? = nil
+    private var lastPasteboardText: String? = nil
+    private var continueFromUniversalClipboard: Bool = false
+    
+    // 手动iOS检测的变量
+    private var forceIOSDetectionUntil: Date? = nil
+    
     // 音效对象
     private var clipboardChangedSound: NSSound?
     private var manualCopySound: NSSound?
@@ -44,6 +54,15 @@ class ClipboardManager: ObservableObject {
     private var isInternalCopyOperation = false
     // 内部复制操作的时间戳，用于避免冲突
     private var lastInternalCopyTime: Date?
+    
+    // 用于监听Handoff和系统事件的变量
+    private var handoffActivityObserver: Any?
+    private var handoffDetectedTime: Date?
+    private var lastHandoffBundleID: String?
+    
+    // 用于Handoff传递的UserActivity
+    private var clipboardUserActivity: NSUserActivity?
+    private var isHandoffSessionActive: Bool = false
     
     // SwiftData模型上下文
     private var modelContext: ModelContext?
@@ -62,6 +81,11 @@ class ClipboardManager: ObservableObject {
     // 最大历史记录大小
     private let maxHistorySize: Int = 500
     
+    // 自定义的Handoff相关通知名称
+    private let handoffReceivedNotification = Notification.Name("com.yuyunfeng.FishCopy.HandoffReceived")
+    private let userActivityWillContinueNotification = Notification.Name("com.yuyunfeng.FishCopy.UserActivityWillContinue")
+    private let userActivityDidUpdateNotification = Notification.Name("com.yuyunfeng.FishCopy.UserActivityDidUpdate")
+    
     init() {
         // 从UserDefaults加载保存的监控间隔设置
         if let savedInterval = UserDefaults.standard.object(forKey: "monitoringInterval") as? Double {
@@ -78,8 +102,111 @@ class ClipboardManager: ObservableObject {
         // 启动剪贴板监控
         startMonitoring()
         
+        // 添加应用切换通知观察者
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidChange),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+        
+        // 启动Handoff事件检测
+        setupHandoffDetection()
+        
+        // 创建并激活用于剪贴板的UserActivity
+        setupClipboardUserActivity()
+        
         // 加载测试数据（当真实数据库连接后可以移除）
         loadDemoData()
+    }
+    
+    deinit {
+        // 移除通知观察者
+        NotificationCenter.default.removeObserver(self)
+        
+        // 移除Handoff观察者
+        if let observer = handoffActivityObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        
+        // 失效UserActivity
+        clipboardUserActivity?.invalidate()
+    }
+    
+    // 设置用于剪贴板的UserActivity
+    private func setupClipboardUserActivity() {
+        // 创建用于表示剪贴板内容的UserActivity
+        clipboardUserActivity = NSUserActivity(activityType: "com.yuyunfeng.FishCopy.clipboard")
+        clipboardUserActivity?.title = "Universal Clipboard"
+        clipboardUserActivity?.isEligibleForHandoff = true
+        
+        // 添加应用标识信息
+        clipboardUserActivity?.addUserInfoEntries(from: [
+            "appName": "FishCopy",
+            "appBundleIdentifier": Bundle.main.bundleIdentifier ?? "com.yuyunfeng.FishCopy"
+        ])
+        
+        // 设置为当前Activity
+        clipboardUserActivity?.becomeCurrent()
+        
+        print("已设置并激活用于剪贴板的UserActivity")
+        
+        // 添加用于接收Handoff的观察者
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didReceiveHandoffUserActivity(_:)),
+            name: NSNotification.Name("NSUserActivityHandoffReceived"),
+            object: nil
+        )
+    }
+    
+    // 接收Handoff的UserActivity
+    @objc private func didReceiveHandoffUserActivity(_ notification: Notification) {
+        print("接收到Handoff UserActivity通知")
+        if let activity = notification.object as? NSUserActivity {
+            print("活动类型: \(activity.activityType)")
+            
+            // 检查是否是通用剪贴板相关活动
+            if activity.activityType.contains("clipboard") || 
+               activity.activityType.contains("Clipboard") || 
+               activity.activityType.contains("pasteboard") ||
+               activity.activityType.contains("Pasteboard") {
+                
+                print("检测到通用剪贴板相关活动")
+                isHandoffSessionActive = true
+                handoffDetectedTime = Date()
+                
+                // 启用iOS检测模式
+                enableForceIOSDetection(forSeconds: 5.0)
+            }
+        }
+    }
+    
+    // 处理应用切换事件
+    @objc private func applicationDidChange(_ notification: Notification) {
+        if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            let currentBundle = app.bundleIdentifier
+            print("应用切换: \(self.lastActiveAppBundle ?? "无") -> \(currentBundle ?? "无")")
+            
+            // 检查是否从其他应用切换到当前应用 - 这是通用剪贴板到达的可能情景
+            if lastActiveAppBundle != currentBundle {
+                // 记录应用切换时间
+                recentChangeTimestamps.append(Date())
+                // 只保留最近10次切换记录
+                if recentChangeTimestamps.count > 10 {
+                    recentChangeTimestamps.removeFirst()
+                }
+                
+                // 保存当前活跃应用
+                lastActiveAppBundle = currentBundle
+                
+                // 将可能是通用剪贴板的标志设为true
+                continueFromUniversalClipboard = true
+                
+                // 记录当前剪贴板文本以便下次比较
+                lastPasteboardText = NSPasteboard.general.string(forType: .string)
+            }
+        }
     }
     
     // 加载音效文件
@@ -264,6 +391,12 @@ class ClipboardManager: ObservableObject {
         let changeCount = pasteboard.changeCount
         let currentTime = Date()
         
+        // 如果启用了强制iOS检测，打印状态
+        if let forceUntil = forceIOSDetectionUntil, forceUntil > currentTime {
+            let remainingTime = forceUntil.timeIntervalSince(currentTime)
+            print("强制iOS内容检测模式已启用，剩余: \(String(format: "%.1f", remainingTime))秒")
+        }
+        
         // 剪贴板变化时处理
         if changeCount != lastChangeCount {
             // 检查当前应用是否在排除列表中
@@ -295,8 +428,80 @@ class ClipboardManager: ObservableObject {
                 isInternalCopyOperation = false
             }
             
+            // 检查是否与Handoff事件相关 - 新增
+            handlePasteboardChange()
+            
+            // 检测是否是通用剪贴板内容 - 启发式检测
+            var isFromiOSDevice = false
+            
+            // 1. 检查内容是否在应用切换后很快变化 (通用剪贴板特征)
+            if continueFromUniversalClipboard {
+                let currentText = pasteboard.string(forType: .string)
+                // 如果内容变化了并且不是从内部复制的
+                if currentText != lastPasteboardText && !isInternalCopyOperation {
+                    print("在应用切换后检测到剪贴板内容变化，这可能是通用剪贴板同步")
+                    isFromiOSDevice = true
+                    
+                    // 检查最近的应用切换时间
+                    if !recentChangeTimestamps.isEmpty {
+                        let latestChangeTime = recentChangeTimestamps.last!
+                        let timeSinceLastChange = currentTime.timeIntervalSince(latestChangeTime)
+                        print("距离上次应用切换的时间: \(timeSinceLastChange)秒")
+                        
+                        // 通用剪贴板内容通常在应用切换后2秒内到达
+                        if timeSinceLastChange < 2.0 {
+                            print("确认为通用剪贴板同步的内容 (时间模式匹配)")
+                            isFromiOSDevice = true
+                        }
+                    }
+                }
+                // 重置标志
+                continueFromUniversalClipboard = false
+            }
+            
+            // 2. 检查剪贴板项目类型
+            if let pbItems = pasteboard.pasteboardItems {
+                let allTypes = pbItems.flatMap { item -> [String] in
+                    return (item.types as? [String]) ?? []
+                }
+                
+                // 输出所有类型
+                print("剪贴板包含类型: \(allTypes.joined(separator: ", "))")
+                
+                // 检查特定的iOS标识符
+                let universalTypes = [
+                    "com.apple.handoff.transport",
+                    "com.apple.mobileme.sync",
+                    "com.apple.pasteboard.promised-file-content-type",
+                    "com.apple.pasteboard.clipboard-type",
+                    "dyn.ah62d4rv4gu8y6y4usm1044pxqzb085xyqc"
+                ]
+                
+                for type in allTypes {
+                    if universalTypes.contains(type) || type.contains("handoff") || type.contains("mobileme") {
+                        print("检测到通用剪贴板特征类型: \(type)")
+                        isFromiOSDevice = true
+                        break
+                    }
+                }
+            }
+            
             // 尝试提取剪贴板内容
             if let content = extractClipboardContent() {
+                // 如果检测到来自iOS设备，处理
+                if isFromiOSDevice {
+                    print("确认内容来自iOS设备")
+                    // 显式设置来源为iOS设备
+                    content.sourceDevice = .iOS
+                    content.sourceApp = ("com.apple.mobileclipboard", "iOS设备", nil)
+                    
+                    // 检查是否需要根据规则忽略iOS内容
+                    if ignoreIosData {
+                        print("根据规则忽略来自iOS设备的内容")
+                        return
+                    }
+                }
+                
                 // 检查内容是否符合规则
                 if !contentPassesRules(content) {
                     print("根据规则忽略此次剪贴板内容")
@@ -305,6 +510,19 @@ class ClipboardManager: ObservableObject {
                 
                 // 设置当前提取的内容
                 currentClipboardContent = content
+                
+                // 如果是内部复制操作且时间在1秒内，跳过
+                if isInternalCopyOperation {
+                    let now = Date()
+                    if let lastTime = lastInternalCopyTime, now.timeIntervalSince(lastTime) < 1.0 {
+                        print("跳过内部复制操作处理")
+                        return
+                    }
+                    
+                    // 超过1秒，重置标记
+                    isInternalCopyOperation = false
+                    print("重置内部复制标记")
+                }
                 
                 // 处理剪贴板内容
                 processClipboardContent()
@@ -318,21 +536,141 @@ class ClipboardManager: ObservableObject {
     private func extractClipboardContent() -> ClipboardContent? {
         let pasteboard = NSPasteboard.general
         
-        // 获取当前活跃的应用信息
-        let sourceAppInfo = getCurrentApplicationInfo()
-        let sourceBundleID = sourceAppInfo.bundleIdentifier
-        let sourceAppName = sourceAppInfo.name
-        
         // 创建新的剪贴板内容对象
         let content = ClipboardContent()
         content.id = UUID()
         content.timestamp = Date()
-        content.sourceApp = (sourceBundleID, sourceAppName, getAppIcon(for: sourceBundleID))
+        
+        // 检查是否处于强制iOS检测模式，或者是否检测到最近的Handoff事件
+        var sourceIsIOS = false
+        if let forceUntil = forceIOSDetectionUntil, forceUntil > Date() {
+            print("当前处于强制iOS检测模式")
+            sourceIsIOS = true
+        } else if let handoffTime = handoffDetectedTime, 
+                  Date().timeIntervalSince(handoffTime) < 5.0 {
+            print("最近5秒内检测到Handoff事件，可能是iOS设备内容")
+            sourceIsIOS = true
+        } else {
+            // 正常检测逻辑 - 检查剪贴板类型等
+            print("检查剪贴板项目类型...")
+            
+            // 定义更完整的iOS设备特征类型列表
+            let iosSignatureTypes = [
+                // Handoff相关
+                "com.apple.handoff.transport",
+                "com.apple.handoff.content",
+                "com.apple.handoff.clipboard",
+                "com.apple.handoff.clipboard.pasteboard",
+                
+                // MobilMe/iCloud相关
+                "com.apple.mobileme.sync",
+                "com.apple.CloudKit",
+                "com.apple.icloud",
+                
+                // 通用剪贴板相关
+                "com.apple.pasteboard.promised-file-content-type",
+                "com.apple.pasteboard.clipboard-type",
+                "com.apple.NSPasteboardTypeUniversalClipboard",
+                
+                // 系统剪贴板
+                "com.apple.pasteboard",
+                "com.apple.ios.pasteboard",
+                
+                // 动态类型 (常见于iOS设备)
+                "dyn.ah62d4rv4gu8y6y4usm1044pxqzb085xyqc",
+                "dyn.ah62d4rv4gu8yc6durvwwa3xmrvw1gkdusm1044pxqzb085xyqc",
+                
+                // UIKit类型
+                "com.apple.uikit.image",
+                "com.apple.uikit.text",
+                "com.apple.uikit.pasteboard"
+            ]
+            
+            if let pbItems = pasteboard.pasteboardItems {
+                print("发现 \(pbItems.count) 个剪贴板项目")
+                
+                // 遍历剪贴板项目
+                for (index, item) in pbItems.enumerated() {
+                    print("检查第 \(index + 1) 个项目:")
+                    
+                    if let types = item.types as? [String] {
+                        // 输出所有类型用于调试
+                        print("项目类型: \(types.joined(separator: ", "))")
+                        
+                        // 检查是否包含iOS特征类型
+                        for type in types {
+                            // 直接匹配iOS特征类型
+                            if iosSignatureTypes.contains(type) {
+                                print("直接匹配到iOS设备特征类型: \(type)")
+                                sourceIsIOS = true
+                                break
+                            }
+                            
+                            // 模糊匹配iOS相关关键词
+                            if type.contains("handoff") || 
+                               type.contains("apple") && (type.contains("mobile") || type.contains("ios") || type.contains("uikit")) ||
+                               type.contains("icloud") ||
+                               type.contains("universal") && type.contains("clipboard") {
+                                print("模糊匹配到iOS设备相关类型: \(type)")
+                                sourceIsIOS = true
+                                break
+                            }
+                        }
+                        
+                        if sourceIsIOS {
+                            break
+                        }
+                    }
+                    
+                    // 检查项目数据中的iOS特征
+                    if let data = item.data(forType: .string) {
+                        print("检查项目数据内容特征")
+                        if let str = String(data: data, encoding: .utf8) {
+                            if str.contains("UIPasteboard") || 
+                               str.contains("UIKit") || 
+                               str.contains("iPhone") || 
+                               str.contains("iPad") ||
+                               str.contains("iOS") && str.contains("Device") {
+                                print("在数据内容中检测到iOS设备特征")
+                                sourceIsIOS = true
+                                break
+                            }
+                        }
+                    }
+                }
+                
+                // 尝试检查特殊属性值
+                if !sourceIsIOS {
+                    for pbItem in pbItems {
+                        // 检查是否有特殊的属性提示内容来源
+                        if let origin = pbItem.string(forType: NSPasteboard.PasteboardType(rawValue: "com.apple.pasteboard.source")) {
+                            if origin.contains("iOS") || origin.contains("iPhone") || origin.contains("iPad") {
+                                print("从来源属性检测到iOS设备: \(origin)")
+                                sourceIsIOS = true
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 设置内容来源
+        if sourceIsIOS {
+            content.sourceDevice = .iOS
+            content.sourceApp = ("com.apple.mobileclipboard", "iOS设备", nil)
+            print("内容来源已设置为iOS设备")
+        } else {
+            let sourceAppInfo = getCurrentApplicationInfo()
+            content.sourceApp = (sourceAppInfo.bundleIdentifier, sourceAppInfo.name, getAppIcon(for: sourceAppInfo.bundleIdentifier))
+            content.sourceDevice = .macOS
+        }
         
         // 提取文本内容
         if let text = pasteboard.string(forType: .string) {
             content.text = text
             content.dataSize = text.utf8.count
+            print("提取到文本内容，长度: \(text.count) 字符")
         }
         
         // 提取图像内容
@@ -340,13 +678,13 @@ class ClipboardManager: ObservableObject {
             content.image = image
             if let tiffData = image.tiffRepresentation {
                 content.dataSize = tiffData.count
+                print("提取到图片内容，大小: \(tiffData.count) 字节")
             }
         }
         
         // 提取文件URL
         if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !fileURLs.isEmpty {
             content.fileURLs = fileURLs
-            // 估算文件URL的大小
             content.dataSize = fileURLs.reduce(0) { total, url in
                 do {
                     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -358,15 +696,21 @@ class ClipboardManager: ObservableObject {
                 }
                 return total
             }
+            print("提取到 \(fileURLs.count) 个文件URL")
         }
         
         // 检查内容是否为空
         if content.text == nil && content.image == nil && (content.fileURLs == nil || content.fileURLs!.isEmpty) {
+            print("未提取到任何有效内容")
             return nil
         }
         
         // 确定内容类别
         determineContentCategory(for: content)
+        
+        // 打印设备来源信息
+        print("剪贴板内容来源设备: \(content.sourceDevice)")
+        print("剪贴板内容来源应用: \(content.sourceApp?.name ?? "未知")")
         
         return content
     }
@@ -505,6 +849,15 @@ class ClipboardManager: ObservableObject {
         let sourceBundleID = sourceAppInfo.bundleIdentifier
         let sourceAppName = sourceAppInfo.name
         print("检测到内容来源应用: \(sourceAppName ?? "未知"), ID: \(sourceBundleID ?? "未知")")
+        
+        // 检查是否来自iOS设备
+        if let content = currentClipboardContent, content.sourceDevice == .iOS {
+            print("检测到来自iOS设备的内容，根据规则处理")
+            if ignoreIosData {
+                print("已启用忽略iOS设备内容规则，跳过处理")
+                return
+            }
+        }
         
         // === 获取文件URL ===
         if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !fileURLs.isEmpty {
@@ -1667,6 +2020,32 @@ class ClipboardManager: ObservableObject {
         NotificationCenter.default.post(name: NSNotification.Name("ClipboardRulesUpdated"), object: nil)
     }
     
+    // 启用强制iOS设备检测一段时间（秒）
+    func enableForceIOSDetection(forSeconds seconds: Double) {
+        print("启用强制iOS设备检测 \(seconds) 秒")
+        forceIOSDetectionUntil = Date().addingTimeInterval(seconds)
+        
+        // 发送通知以便UI可以更新
+        NotificationCenter.default.post(
+            name: Notification.Name("ForceIOSDetectionEnabled"),
+            object: nil,
+            userInfo: ["seconds": seconds]
+        )
+        
+        // 添加一次性计时器，在时间结束后重置
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self = self else { return }
+            print("强制iOS设备检测已结束")
+            self.forceIOSDetectionUntil = nil
+            
+            // 发送通知以便UI可以更新
+            NotificationCenter.default.post(
+                name: Notification.Name("ForceIOSDetectionDisabled"),
+                object: nil
+            )
+        }
+    }
+    
     // 检查内容是否符合规则
     private func contentPassesRules(_ content: ClipboardContent) -> Bool {
         // 检查大小限制
@@ -1705,5 +2084,298 @@ class ClipboardManager: ObservableObject {
         }
         
         return true
+    }
+    
+    // 检查是否来自UIPasteboard的脚本工具
+    func detectIOSDeviceClipboard() {
+        print("开始检测来自iOS设备的剪贴板内容")
+        
+        // 启用5秒的强制iOS检测模式
+        enableForceIOSDetection(forSeconds: 5.0)
+        
+        // 通知用户
+        DispatchQueue.main.async {
+            let notification = NSUserNotification()
+            notification.title = "iOS设备检测模式已启用"
+            notification.informativeText = "接下来5秒内的剪贴板内容将被视为来自iOS设备"
+            notification.soundName = NSUserNotificationDefaultSoundName
+            NSUserNotificationCenter.default.deliver(notification)
+            
+            // 也显示一个提示框
+            let alert = NSAlert()
+            alert.messageText = "iOS设备检测模式已启用"
+            alert.informativeText = "接下来5秒内，请在iOS设备上复制内容并等待通用剪贴板同步。\n\n系统将把这段时间内的所有剪贴板内容识别为来自iOS设备。"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "好的")
+            
+            // 创建模态窗口
+            if let window = NSApp.keyWindow {
+                alert.beginSheetModal(for: window) { _ in }
+            } else {
+                alert.runModal()
+            }
+        }
+    }
+    
+    // 设置Handoff事件检测
+    private func setupHandoffDetection() {
+        print("开始设置Handoff和系统事件检测...")
+        
+        // 监听应用程序生命周期事件
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(detectHandoffAndSystemEvents),
+            name: NSWorkspace.didLaunchApplicationNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(detectHandoffAndSystemEvents),
+            name: NSWorkspace.didActivateApplicationNotification, 
+            object: nil
+        )
+        
+        // 注册自定义的通知监听
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillContinueUserActivity(_:)),
+            name: userActivityWillContinueNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidUpdateUserActivity(_:)),
+            name: userActivityDidUpdateNotification,
+            object: nil
+        )
+        
+        // 注册应用程序委托来处理Handoff
+        setupAppDelegateHandoffHandling()
+        
+        // 获取分布式通知中心
+        let distributedCenter = DistributedNotificationCenter.default()
+        
+        // 监听通用剪贴板和Handoff相关的系统通知
+        let handoffRelatedNotifications: [Notification.Name] = [
+            // 剪贴板服务通知
+            Notification.Name("com.apple.pasteboard.changed"),
+            Notification.Name("com.apple.Pasteboard.server.pasteboard.changed"),
+            Notification.Name("com.apple.Pasteboard.client.pasteboard.changed"),
+            
+            // Handoff相关通知
+            Notification.Name("com.apple.ServiceHub.PBCopyNotification"),
+            Notification.Name("com.apple.HandoffActivated"),
+            Notification.Name("com.apple.UniversalClipboard.Received"),
+            
+            // 系统服务通知
+            Notification.Name("com.apple.sharingd.devicediscovery"),
+            Notification.Name("com.apple.sharingd.HandoffClientDataChanged"),
+            Notification.Name("com.apple.sharingd.deviceadded"),
+            
+            // Continuity相关通知
+            Notification.Name("com.apple.continuity.clipboard.changed"),
+            Notification.Name("com.apple.continuity.activated")
+        ]
+        
+        // 注册所有通知
+        for notificationName in handoffRelatedNotifications {
+            distributedCenter.addObserver(
+                self,
+                selector: #selector(detectHandoffAndSystemEvents),
+                name: notificationName,
+                object: nil
+            )
+            print("已注册系统通知: \(notificationName.rawValue)")
+        }
+        
+        print("已完成Handoff和系统事件检测设置")
+    }
+    
+    // 设置应用程序委托处理Handoff
+    private func setupAppDelegateHandoffHandling() {
+        // 在应用程序委托中注册Handoff处理方法
+        let notificationCenter = NotificationCenter.default
+        
+        // 注意：这些通知在实际使用中需要从AppDelegate转发过来
+        notificationCenter.addObserver(
+            forName: handoffReceivedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self else { return }
+            print("接收到Handoff通知")
+            
+            if let activity = notification.userInfo?["activity"] as? NSUserActivity {
+                self.handleUserActivity(activity)
+            }
+        }
+    }
+    
+    // 处理接收到的UserActivity
+    private func handleUserActivity(_ activity: NSUserActivity) {
+        print("处理UserActivity: \(activity.activityType)")
+        
+        // 检查是否是通用剪贴板相关活动
+        if activity.activityType.contains("clipboard") || 
+           activity.activityType.contains("Clipboard") || 
+           activity.activityType.contains("pasteboard") ||
+           activity.activityType.contains("Pasteboard") {
+            
+            print("检测到通用剪贴板相关活动")
+            isHandoffSessionActive = true
+            handoffDetectedTime = Date()
+            
+            // 启用iOS检测模式
+            enableForceIOSDetection(forSeconds: 5.0)
+            
+            // 延迟检查剪贴板
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.checkClipboard()
+            }
+        }
+    }
+    
+    // 监听继续用户活动通知
+    @objc private func applicationWillContinueUserActivity(_ notification: Notification) {
+        print("收到应用将继续用户活动通知")
+        if let activityType = notification.userInfo?["NSUserActivityType"] as? String {
+            print("活动类型: \(activityType)")
+            
+            if activityType.contains("clipboard") || activityType.contains("pasteboard") {
+                print("准备接收通用剪贴板内容")
+                isHandoffSessionActive = true
+                handoffDetectedTime = Date()
+                
+                // 启用iOS检测模式
+                enableForceIOSDetection(forSeconds: 5.0)
+            }
+        }
+    }
+    
+    // 监听更新用户活动通知
+    @objc private func applicationDidUpdateUserActivity(_ notification: Notification) {
+        print("收到应用已更新用户活动通知")
+        if let activity = notification.userInfo?["NSUserActivity"] as? NSUserActivity {
+            print("更新的活动类型: \(activity.activityType)")
+            
+            // 检查是否是通用剪贴板或Handoff相关活动
+            if activity.activityType.contains("clipboard") || 
+               activity.activityType.contains("Clipboard") ||
+               activity.activityType.contains("pasteboard") ||
+               activity.activityType.contains("continuity") ||
+               activity.activityType.contains("handoff") {
+                
+                print("检测到可能与通用剪贴板相关的活动更新")
+                
+                // 检查是否很快就有剪贴板变化
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.checkClipboard()
+                }
+            }
+        }
+    }
+    
+    // 全局剪贴板变化检测 - 不再需要通知监听
+    private func handlePasteboardChange() {
+        print("检测到剪贴板变化")
+        
+        // 如果最近检测到Handoff事件，则标记为iOS设备内容
+        if isHandoffSessionActive || 
+           (handoffDetectedTime != nil && Date().timeIntervalSince(handoffDetectedTime!) < 3.0) {
+            print("剪贴板变化发生在Handoff会话期间，很可能是iOS设备内容")
+            enableForceIOSDetection(forSeconds: 5.0)
+            
+            // 延迟执行以确保剪贴板内容已完全更新
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.checkClipboard()
+            }
+        }
+    }
+    
+    // 检测Handoff和系统事件
+    @objc private func detectHandoffAndSystemEvents(_ notification: Notification) {
+        // 获取当前时间
+        let now = Date()
+        
+        // 提取通知信息
+        let notificationName = notification.name.rawValue
+        print("收到系统通知: \(notificationName)")
+        
+        var detectedHandoff = false
+        var bundleID: String? = nil
+        
+        // 根据通知名称直接检测
+        if notificationName.contains("pasteboard") || 
+           notificationName.contains("Pasteboard") || 
+           notificationName.contains("Clipboard") || 
+           notificationName.contains("clipboard") || 
+           notificationName.contains("Handoff") || 
+           notificationName.contains("handoff") || 
+           notificationName.contains("continuity") {
+            
+            detectedHandoff = true
+            print("检测到剪贴板或Handoff相关系统通知: \(notificationName)")
+        }
+        
+        // 应用切换检测
+        if notification.name == NSWorkspace.didActivateApplicationNotification {
+            if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+                bundleID = app.bundleIdentifier
+                
+                // 检查是否为系统服务相关进程
+                if let id = bundleID, 
+                   (id.contains("sharingd") || 
+                    id.contains("continuity") || 
+                    id.contains("handoff") || 
+                    id.contains("pasteboard") || 
+                    id == "com.apple.PBDaemonV3") {
+                    
+                    detectedHandoff = true
+                    print("检测到Handoff相关系统服务激活: \(id)")
+                }
+            }
+        }
+        
+        // 如果检测到Handoff事件
+        if detectedHandoff {
+            handoffDetectedTime = now
+            lastHandoffBundleID = bundleID
+            print("检测到Handoff相关事件，启用强制iOS检测5秒")
+            
+            // 标记Handoff会话活跃
+            isHandoffSessionActive = true
+            
+            // 启用iOS检测模式
+            enableForceIOSDetection(forSeconds: 5.0)
+            
+            // 定时检查剪贴板变化 - 使用多个间隔以增加捕获概率
+            let checkIntervals = [0.5, 1.0, 2.0, 3.0]
+            
+            for interval in checkIntervals {
+                DispatchQueue.main.asyncAfter(deadline: .now() + interval) { [weak self] in
+                    guard let self = self else { return }
+                    print("Handoff事件后延迟\(interval)秒检查剪贴板")
+                    
+                    // 检查剪贴板是否有新内容
+                    let pasteboard = NSPasteboard.general
+                    let changeCount = pasteboard.changeCount
+                    
+                    if changeCount != self.lastChangeCount {
+                        print("在Handoff延迟检查中发现剪贴板变化，很可能是iOS设备内容")
+                        // 立即触发检查
+                        self.checkClipboard()
+                    }
+                }
+            }
+            
+            // 5秒后重置Handoff会话状态
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+                guard let self = self else { return }
+                print("重置Handoff会话状态")
+                self.isHandoffSessionActive = false
+            }
+        }
     }
 } 
